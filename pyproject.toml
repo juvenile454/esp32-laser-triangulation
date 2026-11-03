@@ -1,0 +1,22 @@
+[project]
+name = "esp32-laser-triangulation"
+version = "0.1.0"
+description = "Experimental laser-line triangulation with an ESP32-S3 camera board"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["tools", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+  "E501",  # long lines are tolerated; no formatter is enforced yet
+  "E702",  # occasional compact statements in report writers
+  "E731",  # small local lambdas in plotting/report helpers
+  "E741",  # short math names (l, t) mirror the formulas they implement
+  "B023",  # closures in the extractor and viewer are evaluated synchronously
+]

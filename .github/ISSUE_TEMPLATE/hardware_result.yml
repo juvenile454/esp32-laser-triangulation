@@ -1,0 +1,23 @@
+name: Hardware measurement or result
+description: Share a measurement, capture result or fixture experience from real hardware.
+labels: [hardware]
+body:
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup
+      description: Board, camera, laser, fixture, baseline B, working distance Z, surface and lighting.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Result
+      description: What you measured, with the exact command and contract parameters used.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Limitations and notes
+      description: What this result does and does not show.

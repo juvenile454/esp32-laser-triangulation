@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "sample_id": "provisional_real_pair_20260808_215611_220047",
+  "evidence_tier": "reusable_real_evidence",
+  "capture": {
+    "fixture_revision": null,
+    "registered_pair": true,
+    "camera": {
+      "sensor": "OV3660",
+      "width_px": 640,
+      "height_px": 480,
+      "exposure": null,
+      "gain": null,
+      "white_balance_locked": null
+    },
+    "laser": {
+      "wavelength_nm": 650,
+      "power_class": "Class IIIa, label max 5 mW",
+      "switch_method": "aperture covered for OFF image"
+    },
+    "timestamp_utc": "2026-08-08T19:56:11Z",
+    "robot_pose": null
+  },
+  "images": {
+    "laser_on": {
+      "file": "live/live_20260808_215611_000273.jpg",
+      "sha256": "5ddb2648cc2af510c06895ac98e8270b48c2c1351c82f0c1e457ce8bf75feafc",
+      "format": "JPEG"
+    },
+    "laser_off": {
+      "file": "live/live_20260808_220047_001653.jpg",
+      "sha256": "945cb47b49e391a3059e3584277fbbb5f0111138bdbf7ab7b69c0e79e43d09a8",
+      "format": "JPEG"
+    }
+  },
+  "geometry": {
+    "working_distance_mm": null,
+    "baseline_mm": null,
+    "laser_angle_deg": null
+  },
+  "ground_truth": {
+    "lateral_offset_mm": null,
+    "height_offset_mm": null,
+    "source": null
+  },
+  "labels": {
+    "valid": null,
+    "reflection": true,
+    "occlusion": null,
+    "surface": "temporary bench scene"
+  },
+  "limitations": [
+    "Temporary non-rigid geometry; not calibration grade.",
+    "Camera auto exposure and/or white balance were not locked.",
+    "Global ON/OFF brightness changed by about 10 RGB levels on average.",
+    "Main laser core is partly saturated and a weaker secondary trace is visible.",
+    "No millimetre ground truth exists; do not use as final TinyML training data."
+  ]
+}

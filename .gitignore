@@ -1,0 +1,57 @@
+# Build output
+.pio/
+.platformio/
+build/
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Logs, captures, generated data and model artifacts
+*.log
+*.jpg
+*.jpeg
+*.png
+*.ppm
+*.bin
+*.elf
+*.map
+*.tflite
+*.onnx
+*.keras
+*.h5
+data/
+dataset/
+artifacts/
+outputs/
+
+# Curated documentation images are the one exception to the image rules above.
+!docs/images/
+!docs/images/*.png
+!docs/images/*.jpg
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.*
+credentials.*

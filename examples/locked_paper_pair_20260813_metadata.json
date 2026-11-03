@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "sample_id": "locked_paper_pair_20260813_185206_185423",
+  "evidence_tier": "reusable_real_evidence",
+  "capture": {
+    "fixture_revision": "temporary-paper-v1",
+    "registered_pair": true,
+    "camera": {
+      "sensor": "OV3660",
+      "width_px": 640,
+      "height_px": 480,
+      "exposure": 784,
+      "gain": 16,
+      "white_balance_locked": true
+    },
+    "laser": {
+      "wavelength_nm": 650,
+      "power_class": "Class IIIa, label max 5 mW",
+      "switch_method": "aperture covered for OFF image"
+    },
+    "timestamp_utc": "2026-08-13T16:53:14Z",
+    "robot_pose": null
+  },
+  "images": {
+    "laser_on": {
+      "file": "captures/locked-paper-pair-20260813/laser_on.jpg",
+      "sha256": "e79cb6bf80d3059be93efd3bee58c4cf4caf850a42a849cbad226f720a6f33bc",
+      "format": "JPEG"
+    },
+    "laser_off": {
+      "file": "captures/locked-paper-pair-20260813/laser_off.jpg",
+      "sha256": "293c9077db28bccd53118267914cf584e634f6cad653d68632c428c9fb1f6a8f",
+      "format": "JPEG"
+    }
+  },
+  "geometry": {
+    "working_distance_mm": null,
+    "baseline_mm": null,
+    "laser_angle_deg": null
+  },
+  "ground_truth": {
+    "lateral_offset_mm": null,
+    "height_offset_mm": null,
+    "source": null
+  },
+  "labels": {
+    "valid": null,
+    "reflection": false,
+    "occlusion": false,
+    "surface": "white paper in temporary fixture"
+  },
+  "limitations": [
+    "Temporary non-rigid geometry; not calibration grade.",
+    "AEC, AGC, AWB and automatic white-balance gains were disabled and read back before both captures; retained aec_value was 784 and agc_gain was 16.",
+    "The pair has no detected integer translation at two-pixel sampling, but that does not establish subpixel registration.",
+    "After excluding a broad laser neighbourhood, the ON background remained brighter than OFF by approximately 3.72/4.22/2.20 RGB levels; covering the directly powered laser can still change scene illumination slightly.",
+    "With contract v2, full-frame ROI, threshold 30, maximum width 64 px, minimum clipped-core luma 145 and maximum clipped-core chroma 80, 311/480 rows were accepted; 293 accepted rows were saturated and zero contained a secondary candidate.",
+    "The wider clipped-core chroma bound is supported by the measured warm yellow-white real core and a dedicated synthetic regression; a separate 38 px synthetic ghost remains detected on all 240 rows.",
+    "Python and native C++ agree on all validity, width, saturation and secondary flags across 480 rows; maximum centre difference is 0.00003 px.",
+    "No millimetre ground truth exists; do not use as calibration or final TinyML training data."
+  ]
+}

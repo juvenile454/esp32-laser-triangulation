@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "sample_id": "provisional_paper_pair_20260813_175100_175146",
+  "evidence_tier": "reusable_real_evidence",
+  "capture": {
+    "fixture_revision": "temporary-paper-v1",
+    "registered_pair": true,
+    "camera": {
+      "sensor": "OV3660",
+      "width_px": 640,
+      "height_px": 480,
+      "exposure": null,
+      "gain": null,
+      "white_balance_locked": false
+    },
+    "laser": {
+      "wavelength_nm": 650,
+      "power_class": "Class IIIa, label max 5 mW",
+      "switch_method": "aperture covered for OFF image"
+    },
+    "timestamp_utc": "2026-08-13T15:51:46Z",
+    "robot_pose": null
+  },
+  "images": {
+    "laser_on": {
+      "file": "live/live_20260813_175146_004906.jpg",
+      "sha256": "cb5bb17a561d50c624a161db1c27c445a39d500937b1bf9181e2d3b35b287cf5",
+      "format": "JPEG"
+    },
+    "laser_off": {
+      "file": "live/live_20260813_175100_004676.jpg",
+      "sha256": "1f42333a90e244fe3baca34e48925420a8a713491e4040aa09ed4a5c2188eb06",
+      "format": "JPEG"
+    }
+  },
+  "geometry": {
+    "working_distance_mm": null,
+    "baseline_mm": null,
+    "laser_angle_deg": null
+  },
+  "ground_truth": {
+    "lateral_offset_mm": null,
+    "height_offset_mm": null,
+    "source": null
+  },
+  "labels": {
+    "valid": null,
+    "reflection": null,
+    "occlusion": false,
+    "surface": "white paper in temporary fixture"
+  },
+  "limitations": [
+    "Temporary non-rigid geometry; not calibration grade.",
+    "Camera auto exposure, gain and white balance were not locked.",
+    "After excluding the laser neighbourhood, ON was globally brighter than OFF by about 6.15/5.85/3.75 RGB levels.",
+    "The pair has no detected integer translation at two-pixel sampling, but that does not establish subpixel registration.",
+    "With contract v2, full-frame ROI, threshold 30 and maximum width 48 px, 316/480 rows were accepted; the visible diagonal stripe occupies only about 310 contiguous rows.",
+    "Contract v2 bridges only bounded bright neutral laser-induced gaps: 285 accepted rows are saturated and the 208 false v1 secondary candidates become zero; a separate synthetic ghost remains detected.",
+    "Python and native C++ agree on all validity, width, saturation and secondary flags across 480 rows; maximum centre difference is 0.00003 px.",
+    "No millimetre ground truth exists; do not use as calibration or final TinyML training data."
+  ]
+}

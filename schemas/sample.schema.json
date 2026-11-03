@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/esp32-laser-triangulation/sample.schema.json",
+  "title": "Laser triangulation sample metadata",
+  "type": "object",
+  "required": ["schema_version", "sample_id", "evidence_tier", "capture", "images", "geometry", "ground_truth", "labels", "limitations"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "evidence_tier": {"enum": ["reusable_real_evidence", "synthetic_fixture", "calibration_grade_real"]},
+    "capture": {
+      "type": "object",
+      "required": ["fixture_revision", "registered_pair", "timestamp_utc", "camera", "laser"],
+      "properties": {
+        "fixture_revision": {"type": ["string", "null"]},
+        "registered_pair": {"type": "boolean"},
+        "timestamp_utc": {
+          "type": ["string", "null"],
+          "description": "ISO-8601 UTC capture time. Required to associate a profile with a robot pose later; null only for fixtures that were never captured on hardware."
+        },
+        "robot_pose": {
+          "type": ["object", "null"],
+          "description": "Robot pose at capture time. Absent or null until a hand-eye calibration exists; recording it early keeps fixture-era captures usable.",
+          "required": ["frame", "x_mm", "y_mm", "z_mm", "rx_deg", "ry_deg", "rz_deg"],
+          "properties": {
+            "frame": {"type": "string", "minLength": 1},
+            "x_mm": {"type": "number"},
+            "y_mm": {"type": "number"},
+            "z_mm": {"type": "number"},
+            "rx_deg": {"type": "number"},
+            "ry_deg": {"type": "number"},
+            "rz_deg": {"type": "number"},
+            "source": {"type": ["string", "null"]}
+          }
+        },
+        "camera": {
+          "type": "object",
+          "required": ["sensor", "width_px", "height_px", "exposure", "gain", "white_balance_locked"],
+          "properties": {
+            "sensor": {"type": ["string", "null"]},
+            "width_px": {"type": "integer", "minimum": 1},
+            "height_px": {"type": "integer", "minimum": 1},
+            "exposure": {"type": ["number", "null"]},
+            "gain": {"type": ["number", "null"]},
+            "white_balance_locked": {"type": ["boolean", "null"]}
+          }
+        },
+        "laser": {
+          "type": "object",
+          "required": ["wavelength_nm", "power_class", "switch_method"],
+          "properties": {
+            "wavelength_nm": {"type": ["number", "null"]},
+            "power_class": {"type": ["string", "null"]},
+            "switch_method": {"type": ["string", "null"]}
+          }
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "required": ["laser_on", "laser_off"],
+      "properties": {
+        "laser_on": {"$ref": "#/$defs/image"},
+        "laser_off": {"$ref": "#/$defs/image"}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "required": ["working_distance_mm", "baseline_mm", "laser_angle_deg"],
+      "properties": {
+        "working_distance_mm": {"type": ["number", "null"]},
+        "baseline_mm": {"type": ["number", "null"]},
+        "laser_angle_deg": {"type": ["number", "null"]}
+      }
+    },
+    "ground_truth": {
+      "type": "object",
+      "required": ["lateral_offset_mm", "height_offset_mm", "source"],
+      "properties": {
+        "lateral_offset_mm": {"type": ["number", "null"]},
+        "height_offset_mm": {"type": ["number", "null"]},
+        "source": {"type": ["string", "null"]}
+      }
+    },
+    "labels": {
+      "type": "object",
+      "required": ["valid", "reflection", "occlusion", "surface"],
+      "properties": {
+        "valid": {"type": ["boolean", "null"]},
+        "reflection": {"type": ["boolean", "null"]},
+        "occlusion": {"type": ["boolean", "null"]},
+        "surface": {"type": ["string", "null"]}
+      }
+    },
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "image": {
+      "type": "object",
+      "required": ["file", "sha256", "format"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "format": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

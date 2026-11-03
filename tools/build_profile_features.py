@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Build a provisional compact TinyML input vector from a stripe profile.
+
+This validates the feature contract only. It does not train or claim a model.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import statistics
+from pathlib import Path
+
+PROFILE_FEATURES = 64
+QUALITY_FEATURES = 5
+
+
+def load_profile(path: Path) -> list[dict[str, float | bool]]:
+    rows = []
+    with path.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            rows.append({
+                "x_px": float(row["x_px"]),
+                "valid": str(row["valid"]).lower() in {"1", "true"},
+                "peak": float(row["peak_score"]),
+                "width": float(row["width_px"]),
+                "saturated": str(row["saturated"]).lower() in {"1", "true"},
+                "secondary": str(row["secondary_candidate"]).lower() in {"1", "true"},
+            })
+    if not rows:
+        raise ValueError("empty profile")
+    return rows
+
+
+def nearest_valid(rows: list[dict[str, float | bool]], index: float) -> float | None:
+    center = int(round(index))
+    for radius in range(len(rows)):
+        for candidate in {center - radius, center + radius}:
+            if 0 <= candidate < len(rows) and bool(rows[candidate]["valid"]):
+                return float(rows[candidate]["x_px"])
+    return None
+
+
+def build_features(rows: list[dict[str, float | bool]]) -> dict[str, object]:
+    valid = [row for row in rows if bool(row["valid"])]
+    if not valid:
+        raise ValueError("profile has no valid points")
+    x_values = [float(row["x_px"]) for row in valid]
+    center = statistics.median(x_values)
+    span = max(1.0, max(x_values) - min(x_values))
+    profile = []
+    for feature_index in range(PROFILE_FEATURES):
+        source_index = feature_index * (len(rows) - 1) / (PROFILE_FEATURES - 1)
+        value = nearest_valid(rows, source_index)
+        profile.append(0.0 if value is None else max(-1.0, min(1.0, (value - center) / span)))
+    count = len(valid)
+    quality = [
+        count / len(rows),
+        sum(float(row["peak"]) for row in valid) / count / 255.0,
+        min(1.0, sum(float(row["width"]) for row in valid) / count / 32.0),
+        sum(bool(row["saturated"]) for row in valid) / count,
+        sum(bool(row["secondary"]) for row in valid) / count,
+    ]
+    values = profile + quality
+    return {
+        "contract_version": 1,
+        "status": "provisional_feature_pipeline_smoke_test_only",
+        "profile_features": PROFILE_FEATURES,
+        "quality_features": QUALITY_FEATURES,
+        "total_features": len(values),
+        "normalization": {"x_center_px": center, "x_span_px": span},
+        "values": values,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("profile_csv", type=Path)
+    parser.add_argument("output_json", type=Path)
+    args = parser.parse_args()
+    features = build_features(load_profile(args.profile_csv))
+    args.output_json.parent.mkdir(parents=True, exist_ok=True)
+    args.output_json.write_text(json.dumps(features, indent=2) + "\n", encoding="utf-8")
+    print(f"FEATURE_RESULT: PASS ({features['total_features']} values -> {args.output_json})")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
