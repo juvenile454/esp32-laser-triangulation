@@ -55,7 +55,13 @@ Still required after mechanical installation:
 - [ ] Validate firmware command `R` with a real software-switched registered
   pair in the rigid fixture.
 - [ ] Run a supervised staged thermal/connection soak before any prolonged use.
-- [ ] Add a maximum-on-time policy before considering unattended operation.
+- [ ] Supervised test of the 60 s maximum-on-time watchdog, manual switch in
+  reach: send `1`, confirm `LASER OFF pin=14 reason=timeout` arrives after about
+  60 s and the physical laser goes dark; confirm a second `1` while on does not
+  extend the limit; confirm an `R` pair taken near the limit completes before
+  the laser goes off; confirm the viewer shows `Off (timeout)`.
+- [ ] The watchdog is not an interlock. Decide on an independent hardware
+  interlock before considering unattended operation.
 
 ## 3. Set focus and camera controls
 

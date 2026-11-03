@@ -100,8 +100,11 @@ The firmware drives GPIO14 low early in `setup()`, and the 10 kOhm resistor keep
 the base low while the GPIO is high-impedance during boot or reset. These are
 startup protections, not a runtime interlock:
 
-- command `1` keeps the laser on until `0`, reset or power removal;
-- there is currently no maximum-on-time watchdog;
+- command `1` keeps the laser on until `0`, reset, power removal or the
+  maximum-on-time watchdog below;
+- the firmware watchdog switches the laser off after `kLaserMaxOnMs` (60 s) of
+  continuous on-time and prints `LASER OFF pin=14 reason=timeout on_ms=… max_on_ms=60000`;
+  it is **not yet tested on the board** (see the lab log);
 - an abrupt host or cable failure does not guarantee an off command;
 - a normal viewer shutdown attempts to command the laser off;
 - the manual switch remains the authoritative physical disconnect.
@@ -110,6 +113,40 @@ Do not leave the prototype unattended while the manual switch is enabled. Before
 fixture work, verify laser-off at boot, after viewer exit and after USB reconnect.
 Use only one USB power source unless the board's power-path isolation has been
 separately established.
+
+### Maximum-on-time watchdog
+
+`src/main.cpp` records `millis()` when `setLaser(true)` switches the laser from
+off to on. `loop()` checks the elapsed time after every serial command and once
+per pass; at `kLaserMaxOnMs` (60 000 ms) it drives GPIO14 low and prints:
+
+```text
+LASER OFF pin=14 reason=timeout on_ms=60004 max_on_ms=60000
+```
+
+A commanded off stays `LASER OFF pin=14`, so the host can tell the two apart;
+the localhost viewer shows `Off (timeout)`. The boot banner reports the limit as
+`LASER_MAX_ON_MS:     60000`.
+
+- Sending `1` again while the laser is on does **not** extend the limit. Only an
+  off → on transition restarts the clock, so `0` then `1` is a deliberate re-arm.
+- Registered-pair capture (`R`) is never cut short: the check runs between
+  commands, not inside one. A pair taken while the laser was on keeps the
+  original start time, so repeated `R` cannot keep the laser lit; if the limit
+  passed during the pair, the laser goes off right after `PAIR_END`.
+- Because the check runs between commands, the laser can stay on past 60 s by
+  the duration of one command. Estimated from the 921600 baud link, not
+  measured: under a second for a JPEG frame, about a second for a pair, and
+  roughly 7 s for a 614 kB RGB565 frame.
+- The timing uses unsigned `millis()` subtraction and is correct across the
+  49-day wrap.
+- This is software on the same microcontroller. A firmware hang, crash or
+  brown-out that leaves GPIO14 high defeats it; it is not an interlock and does
+  not replace the manual switch.
+
+**Status:** not yet exercised on the board. `pio run -j 1` must pass before it
+is flashed, and the supervised test is listed in
+[HARDWARE_RETURN_CHECKLIST.md](HARDWARE_RETURN_CHECKLIST.md).
 
 ## Local control
 

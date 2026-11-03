@@ -21,9 +21,10 @@
 
 > [!WARNING]
 > This project switches a **5 mW, 650 nm Class IIIa laser**. Never look into the
-> beam or its reflections. The firmware has **no maximum laser-on timeout yet**.
-> Keep the manual switch in the laser's 5 V lead within reach and never leave the
-> enabled setup unattended. See [SECURITY.md](SECURITY.md).
+> beam or its reflections. The firmware switches the laser off after **60 s**
+> on, but that timeout is **not yet tested on the board** and is not an
+> interlock. Keep the manual switch in the laser's 5 V lead within reach and
+> never leave the enabled setup unattended. See [SECURITY.md](SECURITY.md).
 
 > [!NOTE]
 > This is an early research prototype, not a metrology instrument or a
@@ -187,7 +188,7 @@ characters, and the firmware sends a status line every 5 s.
 | `C` | Send one length-framed VGA JPEG with an FNV-1a checksum |
 | `R` | Capture a registered pair: only the laser state changes between the frames |
 | `M` | Send one raw RGB565 frame *(cross-compiled, not yet run on hardware)* |
-| `1` / `0` | Laser on / off on GPIO14 |
+| `1` / `0` | Laser on / off on GPIO14; after 60 s on the firmware switches it off and prints `LASER OFF pin=14 reason=timeout` |
 | `S` | Report AEC/AGC/AWB status |
 | `K` / `A` | Lock / re-enable exposure, gain and white-balance automation |
 | `Ennnn` / `Gnn` | Set exposure / gain (locks the automatic controller first) |
@@ -238,7 +239,8 @@ boards/           PlatformIO board definition
 - [ ] Rigid rail fixture with a 30–45° triangulation angle
 - [ ] Unclipped stripe core: lower exposure and gain, 650 nm band-pass filter
 - [ ] Measured focal length, then pixel → mm calibration with held-out validation
-- [ ] Maximum laser-on timeout in firmware, and a supervised soak test
+- [x] 60 s maximum laser-on timeout in firmware *(not yet tested on the board)*
+- [ ] Supervised board test of the laser-on timeout, then a supervised soak test
 - [ ] Extraction running on the ESP32-S3, with timing and memory measured
 - [ ] TinyML only if it beats the frozen classical baseline on real held-out data
 

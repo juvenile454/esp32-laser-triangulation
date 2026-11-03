@@ -207,7 +207,7 @@ rigid transform into robot coordinates.
 
 - The portable core is compiled and unit-tested for ESP32 but has not run on the board.
 - The RGB565 measurement path is written and cross-compiled but not hardware-verified; runtime pixel-format switching re-allocates the frame buffer.
-- GPIO14 laser switching and the localhost viewer's `0/1/0` path are hardware-verified through the completed `2N2222` stage. A final-fixture `R` capture, multi-hour soak and maximum-on-time policy remain pending.
+- GPIO14 laser switching and the localhost viewer's `0/1/0` path are hardware-verified through the completed `2N2222` stage. A final-fixture `R` capture and a multi-hour soak remain pending. The 60 s firmware maximum-on-time watchdog is not yet tested on the board.
 - The stripe core is saturated, which costs roughly an order of magnitude of centre precision.
 - No rigid-fixture pixel-to-millimetre calibration exists, and the focal length is estimated rather than measured.
 - Thresholds, runtime, PSRAM pressure and optical accuracy are not production claims.

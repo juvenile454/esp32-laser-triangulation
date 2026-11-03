@@ -12,6 +12,7 @@ import signal
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from http import HTTPStatus
@@ -94,11 +95,24 @@ class FrameState:
         with self.condition:
             if "LASER ON" in response:
                 self.laser = "On"
+            elif "LASER OFF" in response and "reason=timeout" in response:
+                # The firmware's maximum on-time watchdog switched it off.
+                self.laser = "Off (timeout)"
             elif "LASER OFF" in response:
                 self.laser = "Off"
             else:
                 self.laser = "Unavailable"
             self.condition.notify_all()
+
+    def observe_serial_line(self, line: str) -> None:
+        """Track laser lines the firmware prints without being asked.
+
+        The maximum on-time watchdog reports ``LASER OFF ... reason=timeout``
+        between commands, so it usually arrives while the viewer is waiting
+        for something else.
+        """
+        if line.startswith(("LASER ON", "LASER OFF")):
+            self.set_laser(line)
 
     def set_camera_control(self, action: str, response: str) -> None:
         with self.condition:
@@ -145,11 +159,15 @@ def focus_score(payload: bytes) -> float:
         return float(ImageStat.Stat(edges).var[0])
 
 
-def request_frame(port: serial.Serial, timeout: float) -> tuple[bytes, int, int]:
+def request_frame(
+    port: serial.Serial,
+    timeout: float,
+    on_line: Callable[[str], None] | None = None,
+) -> tuple[bytes, int, int]:
     port.write(b"C")
     port.flush()
     deadline = time.monotonic() + timeout
-    fields = read_header(port, deadline)
+    fields = read_header(port, deadline, on_line)
     length = int(fields[1])
     width = int(fields[2])
     height = int(fields[3])
@@ -186,6 +204,7 @@ def send_serial_control(
     payload: bytes,
     expected_prefixes: tuple[str, ...] = ("TEST_LIGHT",),
     timeout: float = 2.0,
+    on_line: Callable[[str], None] | None = None,
 ) -> str:
     port.write(payload)
     port.flush()
@@ -193,6 +212,8 @@ def send_serial_control(
     matched: dict[str, str] = {}
     while time.monotonic() < deadline:
         line = port.readline().decode("ascii", errors="ignore").strip()
+        if line and on_line is not None:
+            on_line(line)
         for prefix in expected_prefixes:
             if line.startswith(prefix):
                 if " ERROR" in line or " FAIL" in line:
@@ -213,7 +234,10 @@ def complete_control(
         return
     try:
         control.response = send_serial_control(
-            port, control.payload, expected_prefixes=control.expected_prefixes
+            port,
+            control.payload,
+            expected_prefixes=control.expected_prefixes,
+            on_line=state.observe_serial_line,
         )
         if control.camera_action == "lock" and not all(
             token in control.response
@@ -274,11 +298,14 @@ def capture_worker(
         try:
             port = open_serial(device, baud)
             wait_for_camera(port, time.monotonic() + 12.0)
-            send_serial_control(port, b"O")
+            send_serial_control(port, b"O", on_line=state.observe_serial_line)
             state.set_light((0, 0, 0))
             try:
                 camera_status = send_serial_control(
-                    port, b"S", expected_prefixes=("CAMERA_CONTROLS",)
+                    port,
+                    b"S",
+                    expected_prefixes=("CAMERA_CONTROLS",),
+                    on_line=state.observe_serial_line,
                 )
                 state.set_camera_control("status", camera_status)
             except TimeoutError:
@@ -295,7 +322,9 @@ def capture_worker(
                     except queue.Empty:
                         break
                     complete_control(control, port, state)
-                payload, width, height = request_frame(port, timeout=8.0)
+                payload, width, height = request_frame(
+                    port, timeout=8.0, on_line=state.observe_serial_line
+                )
                 state.update(payload, width, height, focus_score(payload))
                 remaining = interval - (time.monotonic() - started)
                 if remaining > 0:

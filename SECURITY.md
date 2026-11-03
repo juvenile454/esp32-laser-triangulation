@@ -42,8 +42,13 @@ history. Deleting it only from the latest commit is insufficient.
   uploading, identify the intended board and serial port and put the manual
   laser switch in the off position.
 - The firmware drives the verified `2N2222` low-side stage on GPIO14. Command
-  `1` keeps the laser on until command `0`, a reset or power removal. **There is
-  no maximum-on-time watchdog yet.**
+  `1` switches the laser on until command `0`, a reset, power removal or the
+  firmware's **60 s maximum-on-time watchdog**, which switches it off and prints
+  `LASER OFF pin=14 reason=timeout`. The watchdog is checked between serial
+  commands, so it can overshoot by one command's duration (roughly 7 s for an
+  RGB565 frame). **It has not yet been tested on the board**, and
+  it is software on the same microcontroller: a firmware hang or crash defeats
+  it. It is not an interlock.
 - A normal viewer shutdown attempts to switch the laser off, but an abrupt host,
   process or cable failure is not an interlock. The manual switch in the 5 V
   lead is the authoritative physical disconnect.
