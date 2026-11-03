@@ -81,7 +81,8 @@ button { margin: .35rem; padding: .65rem 1rem; font-size: 1rem; cursor: pointer;
     <button class="light-off" onclick="laser(false)">Laser off</button>
     <p class="note" style="margin:.5rem 0 0">Without the transistor driver the laser sits permanently on the 5 V rail
     and these buttons have no effect. Stopping the viewer switches the laser off.
-    The firmware has no maximum on-time: keep the manual switch within reach.</p>
+    The firmware switches the laser off after 60 s on (shown as “Off (timeout)”); this is
+    not yet tested on the board and is no interlock: keep the manual switch within reach.</p>
   </div>
   <button onclick="saveFrame()">Save current frame</button>
   <button onclick="shutdownViewer()">Stop viewer</button><br>

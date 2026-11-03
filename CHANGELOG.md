@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Firmware maximum laser-on watchdog: after `kLaserMaxOnMs` (60 s) of
+  continuous on-time the laser is switched off and the firmware prints
+  `LASER OFF pin=14 reason=timeout on_ms=… max_on_ms=60000`. Repeating `1` does
+  not extend the limit, and registered-pair capture (`R`) is never cut short nor
+  allowed to restart the clock. The boot banner reports `LASER_MAX_ON_MS`.
+  Not yet tested on the board; a supervised test is still pending.
+- The localhost viewer tracks laser lines the firmware prints unprompted and
+  shows a watchdog switch-off as `Off (timeout)`.
+
+### Changed
+
+- `capture_frame.read_header` accepts an optional `on_line` callback for the
+  lines it skips while waiting for `FRAME_BEGIN`.
+
 ## [0.1.0] - 2026-11-03
 
 First public release of the research prototype.

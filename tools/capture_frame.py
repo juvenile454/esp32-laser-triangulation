@@ -7,6 +7,7 @@ import argparse
 import io
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import serial
@@ -34,9 +35,16 @@ def read_exact(port: serial.Serial, length: int, deadline: float) -> bytes:
     return b"".join(chunks)
 
 
-def read_header(port: serial.Serial, deadline: float) -> list[str]:
+def read_header(
+    port: serial.Serial,
+    deadline: float,
+    on_line: Callable[[str], None] | None = None,
+) -> list[str]:
+    """Wait for FRAME_BEGIN. Lines skipped on the way are passed to on_line."""
     while time.monotonic() < deadline:
         line = port.readline().decode("ascii", errors="replace").strip()
+        if line and on_line is not None:
+            on_line(line)
         if line.startswith("FRAME_ERROR"):
             raise RuntimeError(line)
         if line.startswith("FRAME_BEGIN "):

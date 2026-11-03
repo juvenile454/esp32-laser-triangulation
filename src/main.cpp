@@ -36,12 +36,21 @@ constexpr std::uint8_t kLaserPin = 14U;
 // previous state can reach the host.
 constexpr int kLaserSettleFrames = 2;
 constexpr std::uint32_t kLaserSettleMs = 80U;
+// Maximum continuous on-time. The watchdog in loop() switches the laser off
+// once it has been on this long, so a lost host or a forgotten `0` cannot keep
+// it lit indefinitely. Repeating `1` while on does not extend it; only an
+// off -> on transition restarts the clock. It is checked between serial
+// commands, never inside one, so it can overshoot by the duration of the
+// longest single command (an RGB565 frame takes roughly 7 s) and it never
+// splits a registered pair or a frame transfer.
+constexpr std::uint32_t kLaserMaxOnMs = 60000U;
 
 constexpr int kAecValueMaximum = 1200;
 constexpr int kAgcGainMaximum = 30;
 
 bool gCameraReady = false;
 bool gLaserOn = false;
+std::uint32_t gLaserOnSinceMs = 0;
 std::uint8_t gTestLightRed = 0U;
 std::uint8_t gTestLightGreen = 0U;
 std::uint8_t gTestLightBlue = 0U;
@@ -144,6 +153,9 @@ void setGainValue(int requested) {
 }
 
 void setLaser(bool on) {
+  if (on && !gLaserOn) {
+    gLaserOnSinceMs = millis();
+  }
   gLaserOn = on;
   digitalWrite(kLaserPin, on ? HIGH : LOW);
 }
@@ -151,6 +163,24 @@ void setLaser(bool on) {
 void reportLaser() {
   Serial.printf("LASER %s pin=%u\n", gLaserOn ? "ON" : "OFF",
                 static_cast<unsigned>(kLaserPin));
+}
+
+// Switches the laser off once it has exceeded kLaserMaxOnMs and says why, so
+// the host can tell a timeout from a commanded off. Unsigned subtraction keeps
+// this correct across the 49-day millis() wrap.
+void enforceLaserMaxOnTime() {
+  if (!gLaserOn) {
+    return;
+  }
+  const std::uint32_t onMs = millis() - gLaserOnSinceMs;
+  if (onMs < kLaserMaxOnMs) {
+    return;
+  }
+  setLaser(false);
+  Serial.printf("LASER OFF pin=%u reason=timeout on_ms=%lu max_on_ms=%lu\n",
+                static_cast<unsigned>(kLaserPin),
+                static_cast<unsigned long>(onMs),
+                static_cast<unsigned long>(kLaserMaxOnMs));
 }
 
 // Reads a fixed-width unsigned decimal argument. Returns -1 on any malformed
@@ -422,6 +452,7 @@ void sendRegisteredPair() {
     return;
   }
   const bool restore = gLaserOn;
+  const std::uint32_t restoreOnSinceMs = gLaserOnSinceMs;
   Serial.printf("PAIR_BEGIN laser_pin=%u settle_ms=%u settle_frames=%d\r\n",
                 static_cast<unsigned>(kLaserPin),
                 static_cast<unsigned>(kLaserSettleMs), kLaserSettleFrames);
@@ -439,6 +470,13 @@ void sendRegisteredPair() {
   sendFrame();
 
   setLaser(restore);
+  // A pair taken while the laser was on must not restart its on-time clock,
+  // or repeated `R` commands could keep it lit indefinitely. The watchdog only
+  // runs between commands, so the pair itself is never cut short; if the limit
+  // passed during the pair, the laser goes off right after PAIR_END.
+  if (restore) {
+    gLaserOnSinceMs = restoreOnSinceMs;
+  }
   Serial.println("PAIR_END");
 }
 
@@ -544,6 +582,8 @@ void setup() {
   Serial.printf("CAMERA_RESULT:       %s\n", gCameraReady ? "PASS" : "FAIL");
   Serial.printf("LASER_PIN:           GPIO %u (off at boot)\n",
                 static_cast<unsigned>(kLaserPin));
+  Serial.printf("LASER_MAX_ON_MS:     %lu\n",
+                static_cast<unsigned long>(kLaserMaxOnMs));
   Serial.println(
       "COMMANDS:            C=frame R=registered pair M=rgb565 frame "
       "P=status S=controls");
@@ -616,7 +656,10 @@ void loop() {
         Serial.println("TEST_LIGHT ERROR invalid_rgb_command");
       }
     }
+    // Between commands only: a command's own output is never interrupted.
+    enforceLaserMaxOnTime();
   }
+  enforceLaserMaxOnTime();
 
   const std::uint32_t now = millis();
   if (now - gLastHeartbeatMs >= kHeartbeatIntervalMs) {

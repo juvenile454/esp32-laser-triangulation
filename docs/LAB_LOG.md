@@ -253,6 +253,50 @@ soak has run, the laser's primary continuous-duty rating remains unknown, and
 firmware has no maximum-on-time watchdog. The exact circuit and operating
 boundary are in [LASER_DRIVER.md](LASER_DRIVER.md).
 
+## Maximum laser-on watchdog, off-board checks only (2026-11-03)
+
+> [!IMPORTANT]
+> **Not hardware-verified.** This change was built and tested off-board only.
+> No board was flashed, and no laser was switched. The watchdog still needs a
+> supervised test on the real board with the manual switch in reach before it
+> can be relied on.
+
+The firmware now switches the laser off after `kLaserMaxOnMs` = 60 000 ms of
+continuous on-time and prints `LASER OFF pin=14 reason=timeout on_ms=…
+max_on_ms=60000`. The behaviour and its limits are described in
+[LASER_DRIVER.md](LASER_DRIVER.md#maximum-on-time-watchdog).
+
+What was verified, without hardware:
+
+- `make clean test sanitize`, `python -m unittest discover -s tests -v` and
+  `ruff check tools tests` passed. The new viewer tests feed recorded serial
+  lines to the parser and confirm a timeout line shows as `Off (timeout)`, both
+  while waiting for a frame and during another command.
+- `src/main.cpp` was compiled on the host with `-Wall -Wextra -Werror` against
+  throwaway Arduino and camera stubs (not committed), with a simulated clock.
+  The simulation confirmed: off after 60 s; a repeated `1` does not extend it; a
+  commanded `0` prints no `reason=timeout`; an `R` started 100 ms before the
+  limit completes and the timeout follows `PAIR_END`; repeated `R` cannot keep
+  the laser lit; correct behaviour across the `millis()` wrap. This checks the
+  logic only, not the ESP32-S3 build or the hardware.
+- **`pio run -j 1` was not run.** The build environment's network policy blocked
+  the PlatformIO registry, so the ESP32-S3 toolchain could not be installed. The
+  firmware is therefore **not yet cross-compiled**; CI's `pio run -j 1` step (or
+  a local build) must pass before it is flashed.
+
+What was not verified and remains open:
+
+- that GPIO14 actually goes low and the physical laser goes dark after 60 s;
+- the real overshoot past 60 s under viewer traffic;
+- that an `R` pair near the limit completes and the laser goes off after
+  `PAIR_END`;
+- the live viewer's `Off (timeout)` display against the real firmware.
+
+The supervised test steps are in
+[HARDWARE_RETURN_CHECKLIST.md](HARDWARE_RETURN_CHECKLIST.md). Until it passes,
+the 2026-08-18 operating boundary stands: never leave the enabled setup
+unattended, and treat the manual switch as the only reliable off.
+
 ## Explicitly blocked until rigid fixture completion
 
 - final ROI and optical thresholds;

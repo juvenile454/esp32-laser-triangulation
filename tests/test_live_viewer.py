@@ -10,13 +10,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
+from capture_frame import fnv1a32  # noqa: E402
 from live_viewer import (  # noqa: E402
     HTML_PATH,
     FrameState,
     SerialControl,
     complete_control,
+    request_frame,
     send_serial_control,
 )
+
+TIMEOUT_LINE = b"LASER OFF pin=14 reason=timeout on_ms=60004 max_on_ms=60000\n"
 
 
 class FakeSerial:
@@ -33,6 +37,36 @@ class FakeSerial:
 
     def readline(self) -> bytes:
         return next(self.lines, b"")
+
+
+class FakeByteStream:
+    """Serial stand-in that serves one byte stream to readline() and read()."""
+
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+        self.writes: list[bytes] = []
+
+    def write(self, payload: bytes) -> None:
+        self.writes.append(payload)
+
+    def flush(self) -> None:
+        pass
+
+    def readline(self) -> bytes:
+        end = self.data.find(b"\n")
+        end = len(self.data) if end < 0 else end + 1
+        line, self.data = self.data[:end], self.data[end:]
+        return line
+
+    def read(self, size: int) -> bytes:
+        chunk, self.data = self.data[:size], self.data[size:]
+        return chunk
+
+
+def framed_jpeg() -> tuple[bytes, bytes]:
+    payload = b"\xFF\xD8" + bytes(1020) + b"\xFF\xD9"
+    header = f"FRAME_BEGIN {len(payload)} 640 480 4 {fnv1a32(payload):08X}\r\n"
+    return payload, header.encode("ascii") + payload + b"\r\nFRAME_END\r\n"
 
 
 class LiveViewerLaserTests(unittest.TestCase):
@@ -71,6 +105,57 @@ class LiveViewerLaserTests(unittest.TestCase):
         )
         complete_control(control, port, state)
         self.assertEqual(state.status()["laser"], "Unavailable")
+
+
+class LiveViewerLaserTimeoutTests(unittest.TestCase):
+    def test_timeout_line_is_distinct_from_commanded_off(self) -> None:
+        state = FrameState()
+        state.set_laser("LASER OFF pin=14")
+        self.assertEqual(state.status()["laser"], "Off")
+        state.set_laser(TIMEOUT_LINE.decode().strip())
+        self.assertEqual(state.status()["laser"], "Off (timeout)")
+
+    def test_unsolicited_timeout_before_a_frame_updates_state(self) -> None:
+        """The firmware prints the timeout between commands, so the viewer
+        usually meets it while waiting for the next FRAME_BEGIN."""
+        payload, framed = framed_jpeg()
+        port = FakeByteStream(TIMEOUT_LINE + framed)
+        state = FrameState()
+        state.set_laser("LASER ON pin=14")
+        frame, width, height = request_frame(
+            port, timeout=1.0, on_line=state.observe_serial_line
+        )
+        self.assertEqual(port.writes, [b"C"])
+        self.assertEqual((frame, width, height), (payload, 640, 480))
+        self.assertEqual(state.status()["laser"], "Off (timeout)")
+
+    def test_unsolicited_timeout_during_other_control_updates_state(self) -> None:
+        port = FakeSerial(
+            [
+                TIMEOUT_LINE,
+                b"CAMERA_CONTROLS aec=1 aec_value=120 agc=1 agc_gain=3 awb=1 awb_gain=1 wb_mode=0\n",
+            ]
+        )
+        state = FrameState()
+        state.set_laser("LASER ON pin=14")
+        control = SerialControl(
+            payload=b"S",
+            expected_prefixes=("CAMERA_CONTROLS",),
+            camera_action="status",
+        )
+        complete_control(control, port, state)
+        self.assertEqual(control.error, "")
+        self.assertEqual(state.status()["laser"], "Off (timeout)")
+
+    def test_laser_on_after_timeout_is_reported_on(self) -> None:
+        port = FakeSerial([b"LASER ON pin=14\n"])
+        state = FrameState()
+        state.set_laser(TIMEOUT_LINE.decode().strip())
+        control = SerialControl(
+            payload=b"1", expected_prefixes=("LASER",), laser_action=True
+        )
+        complete_control(control, port, state)
+        self.assertEqual(state.status()["laser"], "On")
 
 
 class LiveViewerControlTests(unittest.TestCase):
