@@ -7,20 +7,23 @@ between camera and laser, the working distance, and the focal length.
 
 Model
 -----
-The laser plane is aimed so it crosses the camera axis at the nominal working
-distance Z0. A surface at distance Z images the stripe at
+Two layouts are modelled (see evaluate() and stripe_shift_px()); in both the
+triangulation angle between laser ray and camera ray is atan(B / Z).
 
-    u(Z) = f_px * B * (1/Z - 1/Z0)          [pixels from the image centre]
+tilted-camera (default): laser along the work-plane normal, camera offset by B
+and aimed at the stripe. A surface raised by h images the stripe at
 
-so the height sensitivity is
+    u(h) = f_px * B * h / (B**2 + Z**2 - Z*h)    [pixels from the image centre]
 
-    du/dZ = -f_px * B / Z**2                [pixels per millimetre]
+tilted-laser: camera perpendicular, laser crossing its axis at Z0, so a
+surface at distance Z images the stripe at
 
-and the triangulation angle between laser ray and camera ray is atan(B / Z).
+    u(Z) = f_px * B * (1/Z - 1/Z0)
 
 Nothing here is a substitute for measuring. Use --from-measured-shift once a
-block of known thickness is available; it derives f_px * B from the observed
-pixel shift and needs no lens data at all.
+block of known thickness is available; it derives f_px from the observed
+pixel shift with the exact forward model of the selected --layout and needs no
+lens data at all.
 """
 
 from __future__ import annotations
@@ -28,7 +31,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from cli_common import description, json_safe, positive_float, positive_int
 
 TILTED_CAMERA = "tilted-camera"
 TILTED_LASER = "tilted-laser"
@@ -117,24 +124,71 @@ def evaluate(
     )
 
 
+def stripe_shift_px(
+    baseline_mm: float,
+    working_distance_mm: float,
+    focal_length_px: float,
+    step_mm: float,
+    layout: str = TILTED_CAMERA,
+) -> float:
+    """Exact image displacement of the stripe when the surface rises by step_mm.
+
+    Same geometry as :func:`evaluate`, without the small-step linearisation.
+
+    tilted-camera: laser along the work-plane normal at x=0, camera at lateral
+    offset B and distance Z, its optical axis through the nominal stripe point
+    (0, Z). Raising the surface by h moves the lit point along the beam to
+    (0, Z - h); the angle between that ray and the optical axis gives
+
+        shift = f_px * B * h / (B**2 + Z**2 - Z*h)
+
+    whose derivative at h = 0 is f_px * sin(alpha) / d, the evaluate() value.
+
+    tilted-laser: u(Z) = f_px * B * (1/Z - 1/Z0), so
+
+        shift = f_px * B * (1/(Z - h) - 1/Z)
+    """
+    if layout not in LAYOUTS:
+        raise ValueError(f"layout must be one of {LAYOUTS}")
+    if baseline_mm <= 0 or working_distance_mm <= 0 or focal_length_px <= 0:
+        raise ValueError("baseline, working distance and focal length must be positive")
+    if not 0 < step_mm < working_distance_mm:
+        raise ValueError("step must be positive and smaller than the working distance")
+    return focal_length_px * _shift_per_focal_px(baseline_mm, working_distance_mm, step_mm, layout)
+
+
+def _shift_per_focal_px(baseline_mm: float, working_distance_mm: float, step_mm: float, layout: str) -> float:
+    # Both forward models are linear in f_px, so the inverse is exact division.
+    if layout == TILTED_CAMERA:
+        return baseline_mm * step_mm / (
+            baseline_mm ** 2 + working_distance_mm ** 2 - working_distance_mm * step_mm
+        )
+    near = working_distance_mm - step_mm
+    return baseline_mm * (1.0 / near - 1.0 / working_distance_mm)
+
+
 def focal_length_from_shift(
     baseline_mm: float,
     working_distance_mm: float,
     step_mm: float,
     shift_px: float,
+    layout: str = TILTED_CAMERA,
 ) -> float:
     """Derive f_px from a measured height step. No lens data required.
 
     step_mm is how far the surface moved *towards* the camera; shift_px is the
-    magnitude of the resulting stripe displacement.
+    magnitude of the resulting stripe displacement. The inverse of
+    :func:`stripe_shift_px` for the same layout, so it is exact for both.
     """
+    if layout not in LAYOUTS:
+        raise ValueError(f"layout must be one of {LAYOUTS}")
+    if baseline_mm <= 0 or working_distance_mm <= 0:
+        raise ValueError("baseline and working distance must be positive")
     if not 0 < step_mm < working_distance_mm:
         raise ValueError("step must be positive and smaller than the working distance")
-    if shift_px <= 0:
+    if not shift_px > 0 or not math.isfinite(shift_px):
         raise ValueError("measured pixel shift must be positive")
-    near = working_distance_mm - step_mm
-    geometric = (1.0 / near) - (1.0 / working_distance_mm)
-    return abs(shift_px) / (baseline_mm * geometric)
+    return shift_px / _shift_per_focal_px(baseline_mm, working_distance_mm, step_mm, layout)
 
 
 def required_baseline(
@@ -297,76 +351,91 @@ def sweep(
     lines.append("")
     lines.append("  matching baselines B = Z * tan(angle), in mm:")
     for distance in distances:
-        cells = "".join(
+        row = "".join(
             f"{distance * math.tan(math.radians(angle)):>10.0f}" for angle in angles_deg
         )
-        lines.append(f"  {distance:>7.0f} " + cells)
+        lines.append(f"  {distance:>7.0f} " + row)
     return "\n".join(lines)
 
 
-def main() -> int:
+JSON_SCHEMA_VERSION = "1.0"
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Compute the accuracy a triangulation layout can reach.",
+        description=description(__doc__),
+        epilog="Exactly one focal-length source is required. Exit codes: 0 success, 2 usage error.",
     )
-    parser.add_argument("--baseline-mm", type=float, required=True)
-    parser.add_argument("--working-distance-mm", type=float, required=True)
-    parser.add_argument(
+    parser.add_argument("--baseline-mm", type=positive_float, required=True,
+                        help="camera-laser baseline B in mm (> 0)")
+    parser.add_argument("--working-distance-mm", type=positive_float, required=True,
+                        help="nominal working distance Z in mm (> 0)")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
         "--focal-length-px",
-        type=float,
-        help="Camera focal length in pixels at the capture resolution.",
+        type=positive_float,
+        help="Camera focal length in pixels at the capture resolution (> 0).",
     )
-    parser.add_argument(
+    source.add_argument(
         "--focal-length-mm",
-        type=float,
-        help="Lens focal length; combine with --pixel-pitch-um.",
+        type=positive_float,
+        help="Lens focal length; requires --pixel-pitch-um.",
+    )
+    source.add_argument(
+        "--from-measured-shift",
+        nargs=2,
+        type=positive_float,
+        metavar=("STEP_MM", "SHIFT_PX"),
+        help="Derive the focal length from an observed height step (inverted with the "
+             "selected --layout). Preferred: needs no lens data and folds in the real optics.",
     )
     parser.add_argument(
         "--pixel-pitch-um",
-        type=float,
-        help="Effective pixel pitch at the capture resolution, in micrometres.",
-    )
-    parser.add_argument(
-        "--from-measured-shift",
-        nargs=2,
-        type=float,
-        metavar=("STEP_MM", "SHIFT_PX"),
-        help="Derive the focal length from an observed height step. Preferred: "
-             "needs no lens data and folds in the real optics.",
+        type=positive_float,
+        help="Effective pixel pitch at the capture resolution, in micrometres (with --focal-length-mm).",
     )
     parser.add_argument("--layout", choices=LAYOUTS, default=TILTED_CAMERA,
                         help="tilted-camera: laser perpendicular to the work "
                              "plane, camera offset and aimed back at the stripe "
-                             "(the standard arrangement). tilted-laser: camera "
+                             "(the standard arrangement, default). tilted-laser: camera "
                              "perpendicular, laser aimed across to its axis.")
-    parser.add_argument("--noise-px", type=float, default=0.22,
-                        help="Measured centroid repeatability, default 0.22 px.")
-    parser.add_argument("--image-width-px", type=int, default=640)
-    parser.add_argument("--target-accuracy-mm", type=float)
+    parser.add_argument("--noise-px", type=positive_float, default=0.22,
+                        help="Measured centroid repeatability in px (> 0), default 0.22.")
+    parser.add_argument("--image-width-px", type=positive_int, default=640,
+                        help="Image width at the capture resolution, default 640.")
+    parser.add_argument("--target-accuracy-mm", type=positive_float,
+                        help="Requested 1-sigma height noise in mm (> 0); prints what reaching it needs.")
     parser.add_argument("--sweep", action="store_true",
                         help="Print an angle/distance table around the given point.")
-    parser.add_argument("--json", type=str, help="Also write the budget to this path.")
-    args = parser.parse_args()
+    parser.add_argument("--json", type=Path,
+                        help="Also write the budget to this path (NaN/Infinity written as null).")
+    return parser
 
-    source = ""
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.pixel_pitch_um is not None and args.focal_length_mm is None:
+        parser.error("--pixel-pitch-um is only used with --focal-length-mm")
     if args.from_measured_shift:
         step_mm, shift_px = args.from_measured_shift
+        if step_mm >= args.working_distance_mm:
+            parser.error("--from-measured-shift: STEP_MM must be smaller than --working-distance-mm")
         focal_length_px = focal_length_from_shift(
-            args.baseline_mm, args.working_distance_mm, step_mm, shift_px
+            args.baseline_mm, args.working_distance_mm, step_mm, shift_px, args.layout
         )
         source = (f"derived from a measured {step_mm:g} mm step producing "
-                  f"{shift_px:g} px of shift")
-    elif args.focal_length_px:
+                  f"{shift_px:g} px of shift ({args.layout} model)")
+    elif args.focal_length_px is not None:
         focal_length_px = args.focal_length_px
         source = "given directly"
-    elif args.focal_length_mm and args.pixel_pitch_um:
+    else:
+        if args.pixel_pitch_um is None:
+            parser.error("--focal-length-mm requires --pixel-pitch-um")
         focal_length_px = args.focal_length_mm / (args.pixel_pitch_um / 1000.0)
         source = (f"estimated from {args.focal_length_mm:g} mm lens and "
                   f"{args.pixel_pitch_um:g} um pixel pitch")
-    else:
-        raise SystemExit(
-            "Need one of --focal-length-px, --from-measured-shift, or both "
-            "--focal-length-mm and --pixel-pitch-um."
-        )
 
     budget = evaluate(
         args.baseline_mm, args.working_distance_mm, focal_length_px,
@@ -385,12 +454,20 @@ def main() -> int:
             args.layout,
         ))
     if args.json:
-        payload = {"focal_length_source": source, "budget": asdict(budget)}
-        with open(args.json, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2)
-            handle.write("\n")
+        payload = {
+            "schema_version": JSON_SCHEMA_VERSION,
+            "focal_length_source": source,
+            "target_accuracy_mm": args.target_accuracy_mm,
+            "budget": asdict(budget),
+        }
+        try:
+            with args.json.open("w", encoding="utf-8") as handle:
+                json.dump(json_safe(payload), handle, indent=2, allow_nan=False)
+                handle.write("\n")
+        except OSError as exc:
+            parser.exit(1, f"{parser.prog}: error: cannot write {args.json}: {exc}\n")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

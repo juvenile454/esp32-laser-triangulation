@@ -8,10 +8,10 @@ The deterministic stripe extractor remains the baseline. A neural model will onl
 
 `tools/build_profile_features.py` converts an extracted profile to exactly 69 finite float features:
 
-- 64 normalized, uniformly resampled centreline values;
+- 64 normalised, uniformly resampled centreline values;
 - valid-point ratio;
-- normalized mean peak score;
-- normalized mean stripe width;
+- normalised mean peak score;
+- normalised mean stripe width;
 - saturation ratio;
 - secondary-reflection ratio.
 
@@ -23,6 +23,6 @@ The matching firmware contract is `lib/laser_core/src/inference_contract.h`. The
 - no train/validation/test split from real workpieces;
 - no TensorFlow/TFLite dependency installed;
 - no synthetic-only model presented as useful for seam correction;
-- no quantization, target latency, tensor arena, or MCU memory claim.
+- no quantisation, target latency, tensor arena, or MCU memory claim.
 
 When representative data exists, compare held-out performance against the classical baseline before adding a TFLite Micro adapter.

@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from live_viewer import (  # noqa: E402
     HTML_PATH,
+    JS_PATH,
     FrameState,
     SerialControl,
     complete_control,
@@ -185,12 +186,70 @@ class LiveViewerControlTests(unittest.TestCase):
         self.assertEqual(state.status()["camera_automation"], "Unknown")
 
 
+class LiveViewerStateTests(unittest.TestCase):
+    def test_claim_and_cancel_are_mutually_exclusive(self) -> None:
+        claimed = SerialControl(payload=b"1")
+        self.assertTrue(claimed.claim())
+        self.assertFalse(claimed.cancel())
+        cancelled = SerialControl(payload=b"1")
+        self.assertTrue(cancelled.cancel())
+        self.assertFalse(cancelled.claim())
+        self.assertTrue(cancelled.cancelled)
+        port = FakeSerial([b"LASER ON pin=14\n"])
+        complete_control(cancelled, port, FrameState())
+        self.assertEqual(port.writes, [])
+        self.assertTrue(cancelled.completed.is_set())
+
+    def test_laser_timers_use_the_injected_clock(self) -> None:
+        now = [100.0]
+        state = FrameState(laser_max_on_s=10.0, heartbeat_s=5.0, clock=lambda: now[0])
+        state.set_laser("LASER ON pin=14")
+        self.assertIsNone(state.laser_off_due())
+        now[0] += 4.0
+        self.assertEqual(state.status()["laser_remaining_s"], 6.0)
+        now[0] += 1.5
+        self.assertEqual(state.laser_off_due(), "page_heartbeat_lost")
+        state.mark_poll()
+        self.assertIsNone(state.laser_off_due())
+        now[0] += 5.0
+        self.assertEqual(state.laser_off_due(), "host_max_on_time")
+        state.handle_line("LASER OFF pin=14 reason=timeout on_ms=10012 max_on_ms=10000")
+        self.assertEqual((state.laser, state.laser_off_reason), ("Off", "timeout"))
+        self.assertIsNone(state.laser_off_due())
+        state.handle_line("LASER OFF pin=14")  # periodic report keeps the reason
+        self.assertEqual(state.laser_off_reason, "timeout")
+        state.handle_line("LASER_PIN:           GPIO 14 (off at boot)")
+        self.assertEqual(state.laser, "Off")
+
+    def test_unsolicited_lines_reach_the_handler_during_controls(self) -> None:
+        state = FrameState()
+        state.set_laser("LASER ON pin=14")
+        port = FakeSerial([b"LASER OFF pin=14 reason=timeout\r\n", b"TEST_LIGHT RGB r=0 g=0 b=0 pin=48 max=64\r\n"])
+        send_serial_control(port, b"O", timeout=0.5, on_line=state.handle_line)
+        self.assertEqual((state.laser, state.laser_off_reason), ("Off", "timeout"))
+
+
 class LiveViewerPageTests(unittest.TestCase):
     def test_page_ships_next_to_the_viewer_in_english(self) -> None:
         page = HTML_PATH.read_text(encoding="utf-8")
         self.assertIn('<html lang="en">', page)
-        for label in ("Laser on", "Laser off", "Stop viewer", "/stream.mjpg"):
+        for label in ("Laser on", "Laser off", "Stop viewer", "/stream.mjpg", '<script src="/viewer.js"'):
             self.assertIn(label, page)
+        self.assertNotIn("onclick", page)
+
+    def test_page_accessibility_and_xss_safety(self) -> None:
+        page = HTML_PATH.read_text(encoding="utf-8")
+        script = JS_PATH.read_text(encoding="utf-8")
+        self.assertIn("<main>", page)
+        self.assertRegex(page, r'id="message" role="status" aria-live="polite"')
+        self.assertRegex(page, r'id="status" role="status" aria-live="polite"')
+        self.assertRegex(page, r'id="error" role="alert"')
+        self.assertIn('id="laser-banner"', page)
+        for unsafe in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "setInterval"):
+            self.assertNotIn(unsafe, script)
+        for required in ("window.confirm(", "setTimeout(refreshLoop", "addEventListener('error'", "X-Viewer-Token",
+                         "button.disabled = true"):
+            self.assertIn(required, script)
 
 
 if __name__ == "__main__":

@@ -7,11 +7,14 @@ before a weld seam can be measured to a tenth of a millimetre.
 Compute any of the numbers below with:
 
 ```bash
-.venv/bin/python tools/triangulation_budget.py \
+.venv/bin/python tools/triangulation_budget.py --layout tilted-laser \
   --baseline-mm 70 --working-distance-mm 400 \
   --focal-length-mm 2.1 --pixel-pitch-um 5.6 \
   --target-accuracy-mm 0.1 --sweep
 ```
+
+The default layout is `tilted-camera`; the example above reproduces the
+provisional carrier, which is `tilted-laser`.
 
 ## Two layouts
 
@@ -80,7 +83,8 @@ once the core stops clipping; see the saturation note below.
 
 Camera and laser both point straight down, roughly 70 mm apart, about 400 mm
 above the work plane. The laser is tilted so its plane crosses the camera axis,
-which is why the stripe images through the frame centre.
+which is why the stripe images through the frame centre. This is the
+`tilted-laser` layout.
 
 ```text
 baseline B                    70.0 mm
@@ -136,6 +140,8 @@ bisects the corner, which is roughly where the torch points anyway.
 
 ### Recommended starting point
 
+All rows use the tilted-camera layout.
+
 | Layout | Angle | Efficiency | mm/px | Field | Height noise |
 |---|---:|---:|---:|---:|---:|
 | B = 105 mm, Z = 150 mm | 35.0° | 0.94 | 0.49 | 313 mm | 0.187 mm |
@@ -160,7 +166,11 @@ out to be the binding constraint after the first real measurements.
 
 ## Where to move
 
-Height noise in millimetres, one sigma, at the measured 0.22 px floor:
+The two layouts give different numbers for the same B and Z, so every table in
+this section names its layout. All values are height noise in millimetres, one
+sigma, at the 0.22 px floor and the estimated f ≈ 375 px.
+
+**Keeping the provisional carrier (`--layout tilted-laser`):**
 
 ```text
   Z \ B          35        70       105       140       210
@@ -172,21 +182,32 @@ Height noise in millimetres, one sigma, at the measured 0.22 px floor:
   (columns are baseline in mm, rows are working distance in mm)
 ```
 
-Three practical options, all reaching a usable triangulation angle:
+**The same positions in the recommended layout (`--layout tilted-camera`):**
 
-| Layout | Angle | mm/px | Field | Height noise |
-|---|---:|---:|---:|---:|
-| B = 70 mm, Z = 120 mm | 30.3° | 0.32 | 205 mm | 0.121 mm |
-| B = 100 mm, Z = 150 mm | 33.7° | 0.40 | 256 mm | 0.132 mm |
-| B = 120 mm, Z = 200 mm | 31.0° | 0.53 | 341 mm | 0.196 mm |
+| B, Z | Angle | mm/px | Field | tilted-laser | tilted-camera |
+|---|---:|---:|---:|---:|---:|
+| B = 70 mm, Z = 120 mm | 30.3° | 0.37 | 237 mm | 0.121 mm | 0.162 mm |
+| B = 100 mm, Z = 150 mm | 33.7° | 0.48 | 308 mm | 0.132 mm | 0.191 mm |
+| B = 120 mm, Z = 200 mm | 31.0° | 0.62 | 398 mm | 0.196 mm | 0.266 mm |
 
-Keeping the existing baseline and simply lowering the fixture to about 120 mm
-is the cheapest route and already lands near 0.12 mm. Aim for a triangulation
-angle of **30° to 45°**: below 20° height resolution collapses, above 60° the
-near leg of a fillet weld starts to occlude the far one.
+(mm/px and field are given for the tilted-camera layout, which views the plane
+obliquely and is therefore slightly coarser.)
 
-Reaching 0.10 mm from the current 400 mm standoff would need a 939 mm baseline,
-which is not a sensible machine.
+The tilted-laser figures look better, but they come from the simpler
+`f · B / Z²` model, and they buy that sensitivity by letting the stripe walk
+across the workpiece as the height changes. A height error then also moves the
+measured location, which is exactly what seam tracking cannot tolerate. That is
+why the rail fixture uses the tilted-camera layout, and why its recommended
+point (B = 84 mm, Z = 120 mm, 0.150 mm) is quoted in that model.
+
+Lowering the existing carrier to about 120 mm is still the cheapest bring-up
+step: about 0.12 mm in its own layout. Aim for a triangulation angle of
+**30° to 45°**: below 20° height resolution collapses, above 60° the near leg
+of a fillet weld starts to occlude the far one.
+
+The 400 mm standoff cannot reach 0.10 mm with a sensible machine. The
+tilted-laser layout would need a 939 mm baseline. The tilted-camera layout
+bottoms out at about 0.47 mm at 45°, however long the baseline.
 
 ## Focal length: measure it, do not trust the estimate
 
@@ -199,13 +220,15 @@ thickness under the target, capture before and after, and measure how far the
 stripe moved:
 
 ```bash
-.venv/bin/python tools/triangulation_budget.py \
+.venv/bin/python tools/triangulation_budget.py --layout tilted-laser \
   --baseline-mm 70 --working-distance-mm 400 \
   --from-measured-shift 20 3.3
 ```
 
 That derives `f_px` from the geometry that actually exists, including whatever
-the lens really does. Do this as the first measurement on the rigid fixture,
+the lens really does. Pass the `--layout` that matches the hardware: the two
+layouts convert the same shift into different focal lengths (up to about a third
+apart at a 35° angle), and the tool inverts the exact forward model of each. Do this as the first measurement on the rigid fixture,
 before any calibration series.
 
 ## Stripe orientation

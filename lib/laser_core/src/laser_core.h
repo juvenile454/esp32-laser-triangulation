@@ -5,7 +5,9 @@
 
 namespace laser {
 
-constexpr std::uint16_t kContractVersion = 3U;
+// v4: the continuity prediction only follows tracked selections, and
+// non-finite float configuration is rejected as kBadArgument.
+constexpr std::uint16_t kContractVersion = 4U;
 
 enum class InvalidReason : std::uint8_t {
   kNone = 0,
@@ -28,25 +30,41 @@ struct FrameViewRgb888 {
 };
 
 struct ExtractorConfig {
+  // Half-open ROI [roi_x0, roi_x1) x [roi_y0, roi_y1) in frame pixels. The
+  // upper bounds are exclusive; 0 means "full frame width/height". All bounds
+  // are clamped to the frame; an ROI that is empty after clamping is
+  // kBadArgument.
   std::uint16_t roi_x0 = 0U;
   std::uint16_t roi_y0 = 0U;
-  std::uint16_t roi_x1 = 0U;  // 0 means frame width.
-  std::uint16_t roi_y1 = 0U;  // 0 means frame height.
+  std::uint16_t roi_x1 = 0U;  // Exclusive; 0 means frame width.
+  std::uint16_t roi_y1 = 0U;  // Exclusive; 0 means frame height.
   std::uint8_t score_threshold = 20U;
   std::uint8_t max_stripe_width_px = 16U;
   std::uint8_t max_clipped_core_gap_px = 12U;
   std::uint8_t clipped_core_min_luma = 145U;
   std::uint8_t clipped_core_min_delta = 25U;
   std::uint8_t clipped_core_max_chroma = 80U;
+  // Finite, 0..1.
   float ghost_ratio = 0.45F;
+  // Finite, 0..1.
   float minimum_valid_ratio = 0.10F;
   // Continuity tracking. A candidate whose centre lies within
   // prediction_window_px of the running prediction always outranks one that
   // does not; strength only decides inside the same tier. 0 disables tracking
-  // and restores pure strongest-cluster selection.
+  // and restores pure strongest-cluster selection. Must be finite and >= 0.
+  //
+  // The prediction is updated only from a *tracked* selection (or seeded by
+  // the first valid row when no prediction exists yet). A row whose selected
+  // candidate lies outside the window - typically a foreign blob picked by
+  // strength because the stripe is missing on that row - is still reported,
+  // but leaves the prediction where it was. Consequence: if the stripe really
+  // jumps by more than the window (a step), selection on the far side falls
+  // back to strongest-cluster order until the stripe re-enters the window;
+  // re-seed per frame via initial_prediction_px.
   float prediction_window_px = 0.0F;
   // Seed for the first scanned row. Negative means "no seed": the first row
   // falls back to strongest-cluster selection and seeds the prediction itself.
+  // Must be finite.
   float initial_prediction_px = -1.0F;
 };
 
@@ -79,7 +97,17 @@ struct MeasurementSummary {
 };
 
 // Pure, allocation-free extraction. One output point is produced for every
-// scan row in the ROI. Physical units are intentionally not part of this API.
+// scan row in the ROI (output[i] describes frame row roi_y0 + i, and its y_px
+// holds that frame row). Physical units are intentionally not part of this
+// API. laser_off may be nullptr: scoring then uses the ON frame only and the
+// clipped-core bridge is disabled.
+//
+// Return contract: false only for call errors, with summary->invalid_reason
+// set to kBadArgument, kDimensionMismatch or kOutputTooSmall (if summary is
+// nullptr, false is returned and nothing is written). true means the frame
+// was scanned; whether it is a usable measurement is summary->valid, with
+// kNoStripe, kInsufficientCoverage or kAllClustersTooWide as the reason
+// when it is not.
 bool extractStripeRgb888(const FrameViewRgb888& laser_on,
                          const FrameViewRgb888* laser_off,
                          const ExtractorConfig& config,
@@ -128,7 +156,10 @@ struct SeamCorner {
 // Fits x = a + b*y independently to the profile before and after every
 // admissible split, keeps the split with the smallest combined squared error
 // and reports the intersection of the two fitted legs. Runs in O(n) with
-// constant memory; invalid profile points are skipped.
+// constant memory; invalid points and points with a non-finite x_px are
+// skipped. Returns false (corner->valid == false) for nullptr arguments,
+// count == 0, count > 65535, minimum_leg_points < 2 or too few usable points;
+// true means a fit was made and corner->valid says whether it is a corner.
 bool fitSeamCorner(const ProfilePoint* profile,
                    std::size_t count,
                    const SeamFitConfig& config,

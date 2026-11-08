@@ -14,9 +14,9 @@ flowchart TD
     host --> score
     score --> extract["Row-wise stripe extraction"]
     extract --> profile["ProfilePoint[] + quality flags"]
-    profile --> calib["Calibrated geometric map<br/>pixel → mm"]
+    profile -.-> calib["Calibrated geometric map<br/>pixel → mm (not yet: needs rigid fixture)"]
     profile -.-> features["Optional 69-float feature vector<br/>→ small learned model, only if<br/>real evidence justifies it"]
-    calib --> summary["MeasurementSummary"]
+    extract --> summary["MeasurementSummary<br/>(pixels, quality flags)"]
 ```
 
 ## Components
@@ -33,7 +33,7 @@ flowchart TD
 
 - `lib/laser_core/src/laser_core.h/.cpp`: allocation-free C++17 stripe extraction from RGB888 images.
 - Inputs and output storage are caller-owned and bounded.
-- Each scan row yields a `ProfilePoint` with subpixel center, width, peak, saturation and secondary-candidate flags.
+- Each scan row yields a `ProfilePoint` with sub-pixel centre, width, peak, saturation and secondary-candidate flags.
 - `MeasurementSummary` reports coverage, confidence and an explicit invalid reason.
 
 ### Host reference and tooling
@@ -50,7 +50,7 @@ flowchart TD
 
 ## Algorithm contract
 
-Contract version 3. For every image row in the configured ROI:
+Contract version 4 (`laser::kContractVersion`, `CONTRACT_VERSION` in Python). For every image row in the configured ROI:
 
 1. Compute a red-sensitive score, optionally using the registered laser-OFF frame.
 2. Form contiguous above-threshold clusters.
@@ -58,7 +58,7 @@ Contract version 3. For every image row in the configured ROI:
 4. Reject clusters wider than the configured maximum. Rejection happens **before** ranking, so a broad specular field can never displace a genuine narrow stripe that is also present.
 5. Rank the surviving clusters. A candidate whose centre lies within `prediction_window_px` of the running prediction outranks one that does not; strength only separates candidates in the same tier. Setting the window to 0 restores pure strongest-cluster selection.
 6. Record a relevant, genuinely separate second cluster as a reflection/ghost warning.
-7. Calculate the selected cluster's score-weighted subpixel center, and seed the next row's prediction from it.
+7. Calculate the selected cluster's score-weighted sub-pixel centre. Only a *tracked* selection (inside the window) moves the prediction for the next row; an untracked one is reported but does not capture the window. Without a prediction yet, or with the window at 0, every selection seeds it.
 8. Aggregate coverage, saturation, ambiguity and signal strength into a measurement summary.
 
 If a row has candidates but all of them are over-wide, the row reports
@@ -66,11 +66,29 @@ If a row has candidates but all of them are over-wide, the row reports
 holds for every row the summary reason is `all_clusters_too_wide`, kept distinct
 from `no_stripe`: a glare field and an unlit scene need different responses.
 
-The current confidence is a quality heuristic, not a calibrated probability. Two
-of its four factors are inert in practice — `signal_quality` saturates whenever
-mean peak exceeds twice the threshold, which real captures always do.
+`MeasurementSummary::confidence` is a **quality score, not a probability**, and
+it is not calibrated against any ground truth. Two of its four factors are inert
+in practice: `signal_quality` saturates whenever the mean peak exceeds twice the
+threshold, which real captures always do. Use the explicit flags (coverage,
+saturation, secondary candidates, invalid reason) for decisions, and treat the
+score only as a coarse ranking of captures.
+
+Configuration values are checked before any pixel is read. Non-finite or
+out-of-range `ghost_ratio`, `minimum_valid_ratio`, `prediction_window_px` and
+`initial_prediction_px` return `kBadArgument` (C++) or raise `ValueError`
+(Python), so NaN can no longer switch off the coverage gate or the ghost flag.
+A `false` return from the C++ entry points means a bad argument, a dimension
+mismatch or too little output space. Whether the measurement is usable is
+reported separately in `MeasurementSummary::valid`.
 
 ### Continuity tracking, and what it does not fix
+
+Contract v4 closed a hole in v3: when the stripe was missing on a single row, a
+bright blob outside the window could be selected and then pulled the
+prediction onto itself for its whole length. The prediction now ignores
+untracked picks. The flip side is that a genuine step larger than the window
+falls back to strongest-cluster selection until the stripe re-enters the
+window; seed each frame with `initial_prediction_px`.
 
 Tracking defends against candidates that are spatially separated from the true
 stripe: ghost reflections, specular blobs on blank steel. It does not rescue a
@@ -113,11 +131,11 @@ Generated coefficients are meaningful only when all input points come from a doc
 
 ## TinyML boundary
 
-TinyML is optional and downstream of deterministic extraction. The provisional feature contract contains 64 normalized profile values plus five quality features. No model is part of the repository. A model is justified only if a frozen classical baseline loses on representative held-out real data and the improvement survives on-device resource and latency checks.
+TinyML is optional and downstream of deterministic extraction. The provisional feature contract contains 64 normalised profile values plus five quality features. No model is part of the repository. A model is justified only if a frozen classical baseline loses on representative held-out real data and the improvement survives on-device resource and latency checks.
 
 ## Persistent versus generated content
 
-Source, schemas, examples and documentation belong in Git. Captures, factory-flash backups, generated datasets, compiled firmware, calibration outputs and model binaries stay outside Git. Tools that write data use `$LASER_DATA_DIR`, or `./data` (ignored by Git) when it is not set.
+Source, schemas, examples and documentation belong in Git. Captures, factory-flash backups, generated datasets, compiled firmware, calibration outputs and model binaries stay outside Git. Tools that write data use `$LASER_DATA_DIR`, or the repository's `data/` directory (ignored by Git) when it is not set.
 
 ## Teach-and-compare part locating
 
@@ -151,7 +169,8 @@ Three limits survive that argument:
    noisy.
 
 Two non-parallel seams determine a pure translation. Six well-spread scans in
-three directions determine a full rigid displacement with a noise gain below 1,
+three directions determine a full rigid displacement with a noise gain of about
+0.66 (section 6 of the `seam_displacement.py` output), that is below 1,
 meaning the least-squares fit averages measurement error down rather than
 amplifying it.
 
@@ -172,7 +191,7 @@ a 400 × 300 mm plate, taken near the corners, give:
 | Two opposite corners | 6 of 6 | 3 of 3 | 0.50 |
 | One corner | 4 of 6 | 2 of 3 | unsolvable |
 
-Compare the 0.25 against 0.66 for the seam-scanning layout: a plate's edges run
+Compare the 0.25 against the 0.66 of the six well-spread seam scans above: a plate's edges run
 in two perpendicular directions and can be scanned at widely separated points,
 which rules out both degeneracies by construction rather than by careful
 planning.
@@ -206,8 +225,8 @@ rigid transform into robot coordinates.
 ## Current limitations
 
 - The portable core is compiled and unit-tested for ESP32 but has not run on the board.
-- The RGB565 measurement path is written and cross-compiled but not hardware-verified; runtime pixel-format switching re-allocates the frame buffer.
-- GPIO14 laser switching and the localhost viewer's `0/1/0` path are hardware-verified through the completed `2N2222` stage. A final-fixture `R` capture, multi-hour soak and maximum-on-time policy remain pending.
+- The RGB565 measurement path is written and cross-compiled but not hardware-verified. The current firmware only switches the sensor's pixel format while the driver stays configured for JPEG, which very likely makes `M` fail; draft PR #3 re-initialises the driver instead.
+- GPIO14 laser switching and the localhost viewer's `0/1/0` path are hardware-verified through the completed `2N2222` stage. The viewer now limits on-time on the host side; a firmware maximum-on time (draft PR #3), a final-fixture `R` capture and a multi-hour soak remain pending.
 - The stripe core is saturated, which costs roughly an order of magnitude of centre precision.
 - No rigid-fixture pixel-to-millimetre calibration exists, and the focal length is estimated rather than measured.
 - Thresholds, runtime, PSRAM pressure and optical accuracy are not production claims.
