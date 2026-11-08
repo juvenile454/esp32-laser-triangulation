@@ -100,8 +100,15 @@ The firmware drives GPIO14 low early in `setup()`, and the 10 kOhm resistor keep
 the base low while the GPIO is high-impedance during boot or reset. These are
 startup protections, not a runtime interlock:
 
-- command `1` keeps the laser on until `0`, reset or power removal;
-- the firmware has no maximum-on-time watchdog yet (draft PR #3);
+- the laser switches on only with the framed command `@LASER ON`; a bare `1`
+  is refused, and any protocol error forces it off;
+- the firmware switches it off after 60 s on-time (`reason=timeout`) and after
+  10 s without any byte from the host (`reason=host_silence`); a `0` is honoured
+  even while a frame is being sent *(compiled, not yet verified on the board;
+  see [CHECKLIST.md](CHECKLIST.md#2c-firmware-laser-watchdogs))*;
+- a shutdown handler and the loop watchdog cover `esp_restart()` and a hung
+  loop, but not every crash path: during a panic GPIO14 can keep its level
+  until the reset;
 - the live viewer switches the laser off after `--laser-max-on-s` (default
   60 s) and when the browser page stops polling for 5 s, but only while the
   viewer process and the USB link are alive;

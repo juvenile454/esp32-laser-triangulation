@@ -44,10 +44,11 @@ history. Deleting it only from the latest commit is insufficient.
 - Firmware upload and hardware actuation are not CI operations. Before
   uploading, identify the intended board and serial port and put the manual
   laser switch in the off position.
-- The firmware drives the verified `2N2222` low-side stage on GPIO14. Command
-  `1` keeps the laser on until command `0`, a reset or power removal. **There is
-  no firmware maximum-on-time watchdog yet**; draft PR #3 adds one and has not
-  been tested on hardware.
+- The firmware drives the verified `2N2222` low-side stage on GPIO14. It
+  switches the laser on only with the framed command `@LASER ON`, and off after
+  60 s on-time or 10 s without host traffic, or immediately on `0`. **These
+  watchdogs are compiled but not yet verified on the board**; until the
+  supervised test in `docs/CHECKLIST.md` passes, treat them as absent.
 - The live viewer limits the on-time on the host side (`--laser-max-on-s`,
   default 60 s) and switches the laser off when the browser page stops polling.
   This only works while the viewer process and the USB link are alive.

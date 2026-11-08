@@ -148,6 +148,16 @@ class LineProtocolTests(unittest.TestCase):
         self.assertEqual(laser_command(True), LASER_ON_COMMAND)
         self.assertEqual(laser_command(False), LASER_OFF_COMMAND)
 
+    def test_laser_on_is_the_framed_firmware_command(self) -> None:
+        # The firmware refuses a bare '1' (LASER ERROR framed_on_required).
+        self.assertEqual(LASER_ON_COMMAND, b"@LASER ON\n")
+        self.assertEqual(LASER_OFF_COMMAND, b"0")
+        report = parse_laser_line("LASER OFF pin=14 reason=host_silence silent_ms=10004 max_silent_ms=10000")
+        assert report is not None
+        self.assertFalse(report.on)
+        self.assertEqual(report.reason, "host_silence")
+        self.assertIsNone(parse_laser_line("LASER ERROR framed_on_required"))
+
     def test_pair_end(self) -> None:
         self.assertTrue(parse_pair_end("PAIR_END"))
         self.assertTrue(parse_pair_end("PAIR_END ok=1"))

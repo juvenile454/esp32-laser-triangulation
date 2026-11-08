@@ -31,8 +31,9 @@ Snapshot of what is verified, blocked and open. Last hardware session:
 
 ## Open
 
-- Firmware maximum laser-on time and framed laser-on command: draft PR #3,
-  compile-only, needs a supervised hardware test.
-- RGB565 frame (`M`): fails with the current firmware's pixel-format switch;
-  PR #3 re-initialises the driver, not yet run on hardware.
+- Firmware laser safety (framed `@LASER ON`, 60 s on-time, 10 s host silence,
+  `0` during transfers, loop watchdog): compiled only; supervised board test in
+  [CHECKLIST.md](CHECKLIST.md#2c-firmware-laser-watchdogs).
+- RGB565 frame (`M`): now re-initialises the camera driver; not yet run on
+  hardware.
 - Registered pair `R` in the final fixture, and a supervised thermal soak.

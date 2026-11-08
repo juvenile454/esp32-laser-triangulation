@@ -56,8 +56,34 @@ Still required after mechanical installation:
   pair in the rigid fixture.
 - [ ] Run a supervised staged thermal/connection soak before any prolonged use.
 - [x] Host-side maximum on-time and page heartbeat in the live viewer.
-- [ ] Verify the firmware maximum-on-time watchdog (draft PR #3) on the board
-  before considering unattended operation.
+
+## 2c. Firmware laser watchdogs
+
+Compiled, not yet run on the board. Test supervised, manual switch in reach,
+viewer open, laser aimed at a matte target:
+
+- [ ] Boot: `LASER_SHUTDOWN_HOOK: PASS`, `LOOP_WDT: PASS`, physical flash
+  16 MiB, laser dark.
+- [ ] A bare `1` returns `LASER ERROR framed_on_required` and the laser stays
+  dark; the viewer's **Laser on** (`@LASER ON`) lights it.
+- [ ] After about 60 s: `LASER OFF pin=14 reason=timeout`, laser dark, viewer
+  shows `Off (timeout)`. A second **Laser on** while lit does not extend the
+  limit. (Start the viewer with `--laser-max-on-s 120` so the firmware limit is
+  the one that fires.)
+- [ ] With the viewer stopped, open a serial terminal
+  (`.venv/bin/python -m serial.tools.miniterm /dev/ttyUSB0 921600`), type
+  `@LASER ON` and Enter, then send nothing: after about 10 s
+  `reason=host_silence` and the laser goes dark.
+- [ ] Send `0` while `M` runs: the laser goes dark during the transfer and
+  `reason=off_while_busy` follows.
+- [ ] `M` returns a 614400-byte RGB565 frame and `C` works again afterwards;
+  `S` still reports the locked controls.
+- [ ] `R` started a few seconds before the 60 s limit completes with
+  `PAIR_END ok=1` before the timeout line.
+- [ ] Record the measured overshoot past 60 s and 10 s.
+
+The watchdogs are not an interlock. Decide on an independent hardware
+interlock before considering unattended operation.
 
 ## 3. Set focus and camera controls
 

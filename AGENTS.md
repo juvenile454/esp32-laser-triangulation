@@ -14,7 +14,8 @@ capture or test.
 - Do not emit robot, welding-system or production-machine corrections.
   Boundary: `SECURITY.md`.
 - Do not treat synthetic fixtures or paper-pair results as calibration.
-- The manual switch is the laser interlock. Never upload firmware or actuate
+- The manual switch is the laser interlock. The firmware watchdogs are
+  compiled but not board-verified; do not rely on them. Never upload firmware or actuate
   hardware as part of an automated check. Hardware rules: `SECURITY.md` and
   `docs/LASER_DRIVER.md`.
 - Python reference (`tools/laser_pipeline.py`) and C++ core
