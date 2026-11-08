@@ -433,7 +433,10 @@ def scenario_base_plate_corners(
     """
     half_length = length_mm / 2.0
     half_width = width_mm / 2.0
-    reach = lambda half: half - inset_mm  # noqa: E731
+
+    def reach(half: float) -> float:
+        return half - inset_mm
+
     return [
         # front and back edges run along x, so each is crossed by a plane whose
         # normal is x; scanned near both ends
