@@ -17,6 +17,14 @@ TOOLS = ROOT / "tools"
 sys.path.insert(0, str(TOOLS))
 
 from fit_calibration import candidate_subsets, cpp_float_literal, robust_fit, write_header  # noqa: E402
+from triangulation_budget import (  # noqa: E402
+    LAYOUTS,
+    TILTED_CAMERA,
+    TILTED_LASER,
+    evaluate,
+    focal_length_from_shift,
+    stripe_shift_px,
+)
 
 
 def run_tool(script: str, *argv: str, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
@@ -115,6 +123,81 @@ class FitCalibrationTests(unittest.TestCase):
         result = run_tool("fit_calibration.py", str(self.base / "missing.csv"), str(self.base / "o"))
         self.assertEqual(result.returncode, 1)
         self.assertNotIn("Traceback", result.stderr)
+
+
+class TriangulationBudgetTests(unittest.TestCase):
+    def test_audit_example_recovers_true_focal_length(self) -> None:
+        shift = stripe_shift_px(105.0, 150.0, 375.0, 10.0, TILTED_CAMERA)
+        self.assertAlmostEqual(focal_length_from_shift(105.0, 150.0, 10.0, shift), 375.0, places=9)
+        # The old tilted-laser inversion applied to this layout gave ~245.9 px.
+        self.assertAlmostEqual(focal_length_from_shift(105.0, 150.0, 10.0, shift, TILTED_LASER), 245.9, delta=0.1)
+
+    def test_round_trip_both_layouts(self) -> None:
+        for layout in LAYOUTS:
+            for baseline, distance, focal, step in ((105.0, 150.0, 375.0, 10.0), (70.0, 400.0, 512.0, 20.0),
+                                                     (30.0, 90.0, 1200.0, 0.5), (200.0, 120.0, 300.0, 60.0)):
+                with self.subTest(layout=layout, baseline=baseline, distance=distance, step=step):
+                    shift = stripe_shift_px(baseline, distance, focal, step, layout)
+                    recovered = focal_length_from_shift(baseline, distance, step, shift, layout)
+                    self.assertLess(abs(recovered - focal) / focal, 1e-6)
+
+    def test_forward_model_matches_evaluate_sensitivity(self) -> None:
+        for layout in LAYOUTS:
+            with self.subTest(layout=layout):
+                budget = evaluate(105.0, 150.0, 375.0, 0.22, 640, layout)
+                step = 1e-4
+                slope = stripe_shift_px(105.0, 150.0, 375.0, step, layout) / step
+                self.assertAlmostEqual(slope, budget.height_sensitivity_px_per_mm, places=4)
+
+    def test_json_has_schema_version_and_no_nan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "budget.json"
+            result = run_tool("triangulation_budget.py", "--baseline-mm", "70", "--working-distance-mm", "400",
+                              "--focal-length-px", "375", "--layout", "tilted-laser", "--json", str(target))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            text = target.read_text(encoding="utf-8")
+            self.assertNotIn("NaN", text)
+            self.assertNotIn("Infinity", text)
+            payload = json.loads(text)
+            self.assertEqual(payload["schema_version"], "1.0")
+            self.assertIsNone(payload["budget"]["sensitivity_efficiency"])
+
+    def test_cli_rejects_invalid_arguments_cleanly(self) -> None:
+        base = ["--baseline-mm", "105", "--working-distance-mm", "150"]
+        cases = [
+            [*base, "--focal-length-px", "0"],
+            [*base, "--focal-length-px", "-3"],
+            [*base, "--focal-length-px", "nan"],
+            [*base],
+            [*base, "--focal-length-px", "375", "--from-measured-shift", "10", "12"],
+            [*base, "--focal-length-mm", "3.6"],
+            [*base, "--focal-length-px", "375", "--pixel-pitch-um", "3"],
+            [*base, "--from-measured-shift", "150", "12"],
+            [*base, "--from-measured-shift", "10", "0"],
+            [*base, "--focal-length-px", "375", "--noise-px", "0"],
+            [*base, "--focal-length-px", "375", "--target-accuracy-mm", "0"],
+            ["--baseline-mm", "0", "--working-distance-mm", "150", "--focal-length-px", "375"],
+            ["--baseline-mm", "10", "--working-distance-mm", "-1", "--focal-length-px", "375"],
+        ]
+        for argv in cases:
+            with self.subTest(argv=argv):
+                result = run_tool("triangulation_budget.py", *argv)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertNotIn("Traceback", result.stderr)
+
+
+class SeamDisplacementTests(unittest.TestCase):
+    def test_json_output_is_strict(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "seam.json"
+            result = run_tool("seam_displacement.py", "--json", str(target))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            json.loads(target.read_text(encoding="utf-8"), parse_constant=lambda name: self.fail(name))
+
+    def test_json_safe_replaces_non_finite(self) -> None:
+        from cli_common import json_safe
+
+        self.assertEqual(json_safe({"a": [math.inf, 1.0, (math.nan,)]}), {"a": [None, 1.0, [None]]})
 
 
 if __name__ == "__main__":
