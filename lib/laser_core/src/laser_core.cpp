@@ -2,9 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace laser {
 namespace {
+
+// Red channel level from which a stripe pixel counts as clipped.
+constexpr std::uint8_t kSaturationLevel = 250U;
+constexpr double kPi = 3.14159265358979323846;
 
 struct Cluster {
   std::uint64_t weight = 0U;
@@ -80,7 +85,9 @@ std::uint8_t clippedCoreBridgeScore(const std::uint8_t* on,
 // Continuity beats strength: a candidate near the running prediction always
 // outranks one outside the window, and weight only separates equals. This is
 // what stops a bright specular blob from stealing the centreline whenever it
-// happens to outshine the stripe on a single row.
+// happens to outshine the stripe on a single row. The prediction itself only
+// follows tracked selections (see extractStripeRgb888), so a blob picked on a
+// row where the stripe is missing cannot drag the window onto itself.
 bool outranks(bool candidate_tracked, std::uint64_t candidate_weight,
               bool incumbent_tracked, std::uint64_t incumbent_weight) {
   if (candidate_tracked != incumbent_tracked) {
@@ -168,6 +175,12 @@ struct Sums {
   }
 };
 
+// A fit point must be a valid measurement with a finite position; a single
+// NaN would otherwise poison every accumulated sum.
+bool usableForFit(const ProfilePoint& point) {
+  return point.valid && std::isfinite(point.x_px);
+}
+
 LineFit fitLine(const Sums& sums) {
   LineFit fit;
   const double denominator = sums.n * sums.yy - sums.y * sums.y;
@@ -217,10 +230,17 @@ bool extractStripeRgb888(const FrameViewRgb888& laser_on,
   const std::uint16_t y1 = config.roi_y1 == 0U
                                ? laser_on.height
                                : std::min(config.roi_y1, laser_on.height);
+  // Written as positive range tests combined with std::isfinite so that NaN,
+  // for which every ordered comparison is false, cannot slip through.
+  const bool ratios_valid =
+      std::isfinite(config.ghost_ratio) && config.ghost_ratio >= 0.0F &&
+      config.ghost_ratio <= 1.0F && std::isfinite(config.minimum_valid_ratio) &&
+      config.minimum_valid_ratio >= 0.0F && config.minimum_valid_ratio <= 1.0F;
+  const bool tracking_valid = std::isfinite(config.prediction_window_px) &&
+                              config.prediction_window_px >= 0.0F &&
+                              std::isfinite(config.initial_prediction_px);
   if (x0 >= x1 || y0 >= y1 || config.score_threshold == 0U ||
-      config.max_stripe_width_px == 0U || config.ghost_ratio < 0.0F ||
-      config.ghost_ratio > 1.0F || config.minimum_valid_ratio < 0.0F ||
-      config.minimum_valid_ratio > 1.0F || config.prediction_window_px < 0.0F) {
+      config.max_stripe_width_px == 0U || !ratios_valid || !tracking_valid) {
     summary->invalid_reason = InvalidReason::kBadArgument;
     return false;
   }
@@ -231,6 +251,7 @@ bool extractStripeRgb888(const FrameViewRgb888& laser_on,
     return false;
   }
 
+  const bool tracking_enabled = config.prediction_window_px > 0.0F;
   bool prediction_valid = config.initial_prediction_px >= 0.0F;
   float prediction = prediction_valid ? config.initial_prediction_px : 0.0F;
 
@@ -244,13 +265,15 @@ bool extractStripeRgb888(const FrameViewRgb888& laser_on,
     Cluster pending_bridge{};
     std::uint8_t pending_bridge_length = 0U;
 
+    // std::size_t arithmetic: y * stride can exceed 32 bits for large strides.
     const std::uint8_t* on_row =
-        laser_on.data + static_cast<std::uint32_t>(y) * laser_on.stride_bytes;
+        laser_on.data +
+        static_cast<std::size_t>(y) * static_cast<std::size_t>(laser_on.stride_bytes);
     const std::uint8_t* off_row =
         laser_off == nullptr
             ? nullptr
-            : laser_off->data +
-                  static_cast<std::uint32_t>(y) * laser_off->stride_bytes;
+            : laser_off->data + static_cast<std::size_t>(y) *
+                                    static_cast<std::size_t>(laser_off->stride_bytes);
 
     for (std::uint32_t scan_x = x0; scan_x <= x1; ++scan_x) {
       const bool at_end = scan_x == x1;
@@ -259,10 +282,10 @@ bool extractStripeRgb888(const FrameViewRgb888& laser_on,
       std::uint8_t bridge_score = 0U;
       const std::uint8_t* on_pixel = nullptr;
       if (!at_end) {
-        on_pixel = on_row + static_cast<std::uint32_t>(x) * 3U;
+        on_pixel = on_row + static_cast<std::size_t>(x) * 3U;
         const std::uint8_t* off_pixel =
             off_row == nullptr ? nullptr
-                               : off_row + static_cast<std::uint32_t>(x) * 3U;
+                               : off_row + static_cast<std::size_t>(x) * 3U;
         score = pixelScore(on_pixel, off_pixel);
         bridge_score = clippedCoreBridgeScore(on_pixel, off_pixel, config);
       }
@@ -284,7 +307,7 @@ bool extractStripeRgb888(const FrameViewRgb888& laser_on,
         current.weight += score;
         current.weighted_x += static_cast<std::uint64_t>(x) * score;
         current.peak = std::max(current.peak, score);
-        current.saturated = current.saturated || on_pixel[0] >= 250U;
+        current.saturated = current.saturated || on_pixel[0] >= kSaturationLevel;
       } else if (!at_end && current.present && bridge_score > 0U &&
                  pending_bridge_length < config.max_clipped_core_gap_px) {
         if (!pending_bridge.present) {
@@ -297,7 +320,7 @@ bool extractStripeRgb888(const FrameViewRgb888& laser_on,
             static_cast<std::uint64_t>(x) * bridge_score;
         pending_bridge.peak = std::max(pending_bridge.peak, bridge_score);
         pending_bridge.saturated =
-            pending_bridge.saturated || on_pixel[0] >= 250U;
+            pending_bridge.saturated || on_pixel[0] >= kSaturationLevel;
         ++pending_bridge_length;
       } else if (current.present) {
         considerCluster(current, config, prediction_valid, prediction,
@@ -334,8 +357,15 @@ bool extractStripeRgb888(const FrameViewRgb888& laser_on,
             static_cast<float>(selection.primary.weight) * config.ghost_ratio;
     point.valid = true;
 
-    prediction = point.x_px;
-    prediction_valid = true;
+    // Only a tracked selection moves the prediction. An untracked pick made
+    // while a prediction exists (stripe missing on this row, foreign blob
+    // selected by strength) is still reported, but must not re-centre the
+    // window on the blob. Without a prediction, or with tracking disabled,
+    // every selection seeds or follows as before.
+    if (selection.primary_tracked || !prediction_valid || !tracking_enabled) {
+      prediction = point.x_px;
+      prediction_valid = true;
+    }
 
     ++summary->valid_points;
     peak_sum += point.peak_score;
@@ -414,7 +444,10 @@ bool fitSeamCorner(const ProfilePoint* profile,
     return false;
   }
   *corner = SeamCorner{};
-  if (profile == nullptr || count == 0U || config.minimum_leg_points < 2U) {
+  // Leg counts are reported as std::uint16_t; longer profiles would truncate.
+  if (profile == nullptr || count == 0U ||
+      count > static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) ||
+      config.minimum_leg_points < 2U) {
     return false;
   }
 
@@ -423,7 +456,7 @@ bool fitSeamCorner(const ProfilePoint* profile,
   float last_y = 0.0F;
   bool seen = false;
   for (std::size_t index = 0; index < count; ++index) {
-    if (!profile[index].valid) {
+    if (!usableForFit(profile[index])) {
       continue;
     }
     const double y = static_cast<double>(profile[index].y_px);
@@ -434,7 +467,8 @@ bool fitSeamCorner(const ProfilePoint* profile,
       seen = true;
     }
   }
-  const double fraction = std::max(0.0F, std::min(0.5F, config.minimum_leg_fraction));
+  const double fraction = static_cast<double>(
+      std::max(0.0F, std::min(0.5F, config.minimum_leg_fraction)));
   const double minimum_leg =
       std::max(static_cast<double>(config.minimum_leg_points),
                std::ceil(total.n * static_cast<double>(fraction)));
@@ -448,7 +482,7 @@ bool fitSeamCorner(const ProfilePoint* profile,
   LineFit best_first{};
   LineFit best_second{};
   for (std::size_t index = 0; index < count; ++index) {
-    if (!profile[index].valid) {
+    if (!usableForFit(profile[index])) {
       continue;
     }
     left.add(static_cast<double>(profile[index].y_px),
@@ -486,7 +520,7 @@ bool fitSeamCorner(const ProfilePoint* profile,
   const double first_angle = std::atan(best_first.slope);
   const double second_angle = std::atan(best_second.slope);
   const double deviation_deg =
-      std::fabs(second_angle - first_angle) * 180.0 / 3.14159265358979323846;
+      std::fabs(second_angle - first_angle) * 180.0 / kPi;
   corner->included_angle_deg = static_cast<float>(180.0 - deviation_deg);
 
   if (std::fabs(slope_difference) < 1e-9) {
@@ -498,7 +532,8 @@ bool fitSeamCorner(const ProfilePoint* profile,
   corner->y_px = static_cast<float>(corner_y);
   corner->x_px = static_cast<float>(corner_x);
 
-  corner->valid = deviation_deg >= config.minimum_corner_deviation_deg &&
+  corner->valid = deviation_deg >=
+                      static_cast<double>(config.minimum_corner_deviation_deg) &&
                   corner->rms_px <= config.maximum_rms_px &&
                   corner_y >= static_cast<double>(first_y) &&
                   corner_y <= static_cast<double>(last_y);
