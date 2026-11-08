@@ -127,6 +127,11 @@ class FakeBoard:
         self.laser_supported = True
         self.stall_frames = threading.Event()
         self.laser_on_delay_s = 0.0
+        self.locked = False
+        self.exposure = 300
+        self.gain = 4
+        self.pair_end = "PAIR_END"
+        self.pair_error: str | None = None
         self.port: FakeSerial | None = None
         self.commands: list[bytes] = []
         self._lock = threading.Lock()
@@ -174,15 +179,42 @@ class FakeBoard:
             rgb = (0, 0, 0) if command == b"O" else tuple(int(payload[i:i + 2], 16) for i in (1, 3, 5))
             return self.line(f"TEST_LIGHT RGB r={rgb[0]} g={rgb[1]} b={rgb[2]} pin=48 max=64")
         if command == b"S":
-            return self.line("CAMERA_CONTROLS aec=1 aec_value=300 agc=1 agc_gain=4 awb=1 awb_gain=1 wb_mode=0")
+            return self.controls_line()
         if command == b"K":
-            return self.line("CAMERA_AUTOMATION LOCKED PASS retained_aec_value=300 retained_agc_gain=4 "
-                             "retained_wb_mode=0 results=0/0/0/0") + self.line(
-                "CAMERA_CONTROLS aec=0 aec_value=300 agc=0 agc_gain=4 awb=0 awb_gain=0 wb_mode=0")
+            self.locked = True
+            return self.line(f"CAMERA_AUTOMATION LOCKED PASS retained_aec_value={self.exposure} "
+                             f"retained_agc_gain={self.gain} retained_wb_mode=0 results=0/0/0/0") + self.controls_line()
         if command == b"A":
-            return self.line("CAMERA_AUTOMATION AUTO PASS results=0/0/0/0") + self.line(
-                "CAMERA_CONTROLS aec=1 aec_value=300 agc=1 agc_gain=4 awb=1 awb_gain=1 wb_mode=0")
+            self.locked = False
+            return self.line("CAMERA_AUTOMATION AUTO PASS results=0/0/0/0") + self.controls_line()
+        if command == b"E":
+            self.exposure = int(payload[1:])
+            return self.line(f"CAMERA_EXPOSURE PASS requested={self.exposure} applied={self.exposure} "
+                             f"readback={self.exposure} results=0/0") + self.controls_line()
+        if command == b"G":
+            self.gain = int(payload[1:])
+            return self.line(f"CAMERA_GAIN PASS requested={self.gain} applied={self.gain} "
+                             f"readback={self.gain} results=0/0") + self.controls_line()
+        if command == b"R":
+            return self.pair_bytes()
         return b""
+
+    def controls_line(self) -> bytes:
+        auto = 0 if self.locked else 1
+        return self.line(f"CAMERA_CONTROLS aec={auto} aec_value={self.exposure} agc={auto} agc_gain={self.gain} "
+                         f"awb={auto} awb_gain={auto} wb_mode=0")
+
+    def pair_bytes(self) -> bytes:
+        if self.pair_error is not None:
+            return self.line(self.pair_error)
+        off = make_jpeg(self.width, self.height, seed=7)
+        on = self.jpeg
+        return (
+            self.line("PAIR_BEGIN laser_pin=14 settle_ms=120 settle_frames=2")
+            + self.line("PAIR_STATE OFF") + frame_bytes(off, self.width, self.height)
+            + self.line("PAIR_STATE ON") + frame_bytes(on, self.width, self.height)
+            + self.line(self.pair_end)
+        )
 
 
 def wait_until(predicate: Callable[[], bool], timeout: float = 5.0, interval: float = 0.01) -> bool:

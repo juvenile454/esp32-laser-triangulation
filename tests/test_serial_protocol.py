@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from fakes import FakeSerial, frame_bytes, make_jpeg
 from serial_protocol import (
