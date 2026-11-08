@@ -2,11 +2,15 @@
 
 ## How was it verified?
 
-- [ ] `make clean test sanitize`
-- [ ] `python -m unittest discover -s tests -v`
-- [ ] `ruff check tools tests`
-- [ ] `pio run -j 1`
+- [ ] `make check` (C++ tests, sanitizers, C++11 check, ruff, mypy, Python tests)
+- [ ] `make firmware` (ESP32-S3 cross-build; compile-only)
 - [ ] Tested on hardware (describe below), or the missing hardware verification is documented
+
+## Laser and safety impact
+
+<!-- Does this change how or when the laser switches? If yes, describe the
+     supervised hardware test (manual switch within reach) or mark it as
+     not yet verified on hardware. -->
 
 ## Notes
 
