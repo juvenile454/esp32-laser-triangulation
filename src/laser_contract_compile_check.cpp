@@ -8,7 +8,7 @@
 // This translation unit forces the portable contracts through the exact
 // ESP32-S3 PlatformIO toolchain even while the board is unavailable. It makes
 // no runtime or memory-performance claim.
-static_assert(laser::kContractVersion == 3U, "unexpected laser contract");
+static_assert(laser::kContractVersion == 4U, "unexpected laser contract");
 static_assert(laser::kInferenceContractVersion == 1U,
               "unexpected inference contract");
 static_assert(laser::kInferenceFeatureCount == 69U,
@@ -18,14 +18,15 @@ static_assert(std::is_trivially_copyable<laser::ProfilePoint>::value,
 static_assert(std::is_trivially_copyable<laser::SeamCorner>::value,
               "seam corners must remain simple bounded records");
 
-namespace laser::firmware_compile_check {
+// Spelled as two namespaces: the firmware toolchain may compile as gnu++11,
+// where C++17 nested namespace definitions are not available.
+namespace laser {
+namespace firmware_compile_check {
 
 ExtractorConfig defaultExtractorConfig() {
+  // Start from the header defaults and set only the deviations, so the two
+  // cannot drift apart.
   ExtractorConfig config{};
-  config.score_threshold = 20U;
-  config.max_stripe_width_px = 16U;
-  config.ghost_ratio = 0.45F;
-  config.minimum_valid_ratio = 0.10F;
   // Continuity tracking is what keeps a specular blob from stealing the
   // centreline on blank steel; keep it exercised by the cross-build.
   config.prediction_window_px = 12.0F;
@@ -46,4 +47,5 @@ bool compileCheckedSeamFit(const ProfilePoint* profile, std::size_t count,
   return fitSeamCorner(profile, count, SeamFitConfig{}, corner);
 }
 
-}  // namespace laser::firmware_compile_check
+}  // namespace firmware_compile_check
+}  // namespace laser
