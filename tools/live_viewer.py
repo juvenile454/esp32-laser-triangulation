@@ -23,13 +23,8 @@ from urllib.parse import urlparse
 import serial
 from PIL import Image, ImageFilter, ImageStat
 
-from capture_frame import (
-    fnv1a32,
-    read_exact,
-    read_frame_end,
-    read_header,
-    wait_for_camera,
-)
+from serial_protocol import open_port, wait_for_camera
+from serial_protocol import request_frame as read_framed_jpeg
 
 HTML_PATH = Path(__file__).with_name("live_viewer.html")
 
@@ -146,39 +141,12 @@ def focus_score(payload: bytes) -> float:
 
 
 def request_frame(port: serial.Serial, timeout: float) -> tuple[bytes, int, int]:
-    port.write(b"C")
-    port.flush()
-    deadline = time.monotonic() + timeout
-    fields = read_header(port, deadline)
-    length = int(fields[1])
-    width = int(fields[2])
-    height = int(fields[3])
-    expected_hash = int(fields[5], 16)
-    if not 1024 <= length <= 2_000_000:
-        raise RuntimeError(f"Implausible JPEG length: {length}")
-    payload = read_exact(port, length, deadline)
-    read_frame_end(port, deadline)
-    if not payload.startswith(b"\xFF\xD8") or not payload.endswith(b"\xFF\xD9"):
-        raise RuntimeError("Invalid JPEG markers")
-    actual_hash = fnv1a32(payload)
-    if actual_hash != expected_hash:
-        raise RuntimeError(
-            f"Checksum mismatch device={expected_hash:08X} host={actual_hash:08X}"
-        )
-    return payload, width, height
+    frame = read_framed_jpeg(port, timeout, verify_image=False)
+    return frame.payload, frame.width, frame.height
 
 
 def open_serial(device: str, baud: int) -> serial.Serial:
-    port = serial.Serial()
-    port.port = device
-    port.baudrate = baud
-    port.timeout = 0.15
-    port.write_timeout = 2.0
-    port.dtr = False
-    port.rts = False
-    port.open()
-    port.reset_input_buffer()
-    return port
+    return open_port(device, baud, timeout=0.15, write_timeout=2.0)
 
 
 def send_serial_control(
