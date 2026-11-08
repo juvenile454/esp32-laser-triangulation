@@ -377,7 +377,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 while not self.server.stop_event.is_set():
                     with self.server.state.condition:
                         self.server.state.condition.wait_for(
-                            lambda: self.server.state.sequence != sequence
+                            lambda seen=sequence: self.server.state.sequence != seen
                             or self.server.stop_event.is_set(),
                             timeout=2.0,
                         )

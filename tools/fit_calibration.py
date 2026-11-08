@@ -150,8 +150,12 @@ def write_svg(path: Path, records: list[dict[str, object]]) -> None:
         xmax += 1.0
     if ymax == ymin:
         ymax += 1.0
-    sx = lambda value: margin + (value - xmin) / (xmax - xmin) * (width - 2 * margin)
-    sy = lambda value: height - margin - (value - ymin) / (ymax - ymin) * (height - 2 * margin)
+    def sx(value: float) -> float:
+        return margin + (value - xmin) / (xmax - xmin) * (width - 2 * margin)
+
+    def sy(value: float) -> float:
+        return height - margin - (value - ymin) / (ymax - ymin) * (height - 2 * margin)
+
     ordered = sorted(records, key=lambda item: float(item["observed_px"]))
     line = " ".join(f"{sx(float(item['observed_px'])):.1f},{sy(float(item['predicted_mm'])):.1f}" for item in ordered)
     circles = []
@@ -195,13 +199,17 @@ def main() -> int:
         records.append({**row, "predicted_mm": prediction, "residual_mm": float(row["physical_mm"]) - prediction, "inlier": include})
     fit_residuals = [float(item["residual_mm"]) for item in records if item["split"] != "validation" and item["inlier"]]
     validation_residuals = [float(item["residual_mm"]) for item in records if item["split"] == "validation"]
-    metric = lambda values: {"count": len(values), "rmse_mm": math.sqrt(sum(value * value for value in values) / len(values)) if values else None, "max_abs_mm": max(map(abs, values)) if values else None}
+
+    def metric(values: list[float]) -> dict[str, object]:
+        return {"count": len(values), "rmse_mm": math.sqrt(sum(value * value for value in values) / len(values)) if values else None, "max_abs_mm": max(map(abs, values)) if values else None}
+
     report = {"tool_version": 1, "source_csv": str(args.input), "mapping": "physical_mm = c0 + c1*observed_px + c2*observed_px^2", "degree": args.degree, "fixture_revision": args.version, "coefficients": coefficients, "fit": metric(fit_residuals), "validation": metric(validation_residuals), "rejected_fit_points": sum(not value for value in fit_inliers), "warning": "Coefficients are metrology-valid only for measured rigid-fixture input data."}
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     with (args.output_dir / "residuals.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=records[0].keys())
-        writer.writeheader(); writer.writerows(records)
+        writer.writeheader()
+        writer.writerows(records)
     write_header(args.output_dir / "calibration_coefficients.h", coefficients, args.version)
     write_svg(args.output_dir / "calibration_plot.svg", records)
     print(json.dumps(report, indent=2))

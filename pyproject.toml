@@ -1,3 +1,6 @@
+# Metadata and tool configuration only. The project is deliberately not
+# installable (no [build-system]): the host tools are standalone scripts.
+
 [project]
 name = "esp32-laser-triangulation"
 version = "0.1.0"
@@ -5,6 +8,27 @@ description = "Experimental laser-line triangulation with an ESP32-S3 camera boa
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+]
+# Mirrors requirements.txt (runtime host dependencies).
+dependencies = [
+  "Pillow==12.3.0",
+  "pyserial==3.5",
+  "jsonschema==4.26.0",
+]
+
+[project.urls]
+Repository = "https://github.com/juvenile454/esp32-laser-triangulation"
+Issues = "https://github.com/juvenile454/esp32-laser-triangulation/issues"
+Changelog = "https://github.com/juvenile454/esp32-laser-triangulation/blob/main/CHANGELOG.md"
 
 [tool.ruff]
 line-length = 120
@@ -12,11 +36,19 @@ target-version = "py310"
 src = ["tools", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B"]
+select = ["E", "F", "W", "I", "UP", "B", "RUF100"]
 ignore = [
   "E501",  # long lines are tolerated; no formatter is enforced yet
-  "E702",  # occasional compact statements in report writers
-  "E731",  # small local lambdas in plotting/report helpers
-  "E741",  # short math names (l, t) mirror the formulas they implement
-  "B023",  # closures in the extractor and viewer are evaluated synchronously
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# The extractor mirrors the C++ reference line by line: short math names and
+# row-loop closures that are evaluated synchronously.
+"tools/laser_pipeline.py" = ["B023", "E741"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["tools"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
