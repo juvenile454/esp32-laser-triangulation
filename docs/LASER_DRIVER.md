@@ -101,9 +101,13 @@ the base low while the GPIO is high-impedance during boot or reset. These are
 startup protections, not a runtime interlock:
 
 - command `1` keeps the laser on until `0`, reset or power removal;
-- there is currently no maximum-on-time watchdog;
+- the firmware has no maximum-on-time watchdog yet (draft PR #3);
+- the live viewer switches the laser off after `--laser-max-on-s` (default
+  60 s) and when the browser page stops polling for 5 s, but only while the
+  viewer process and the USB link are alive;
 - an abrupt host or cable failure does not guarantee an off command;
-- a normal viewer shutdown attempts to command the laser off;
+- a normal viewer shutdown commands the laser off and exits with code 1 and
+  `LASER STATE UNKNOWN` if it cannot confirm that;
 - the manual switch remains the authoritative physical disconnect.
 
 Do not leave the prototype unattended while the manual switch is enabled. Before
@@ -118,10 +122,12 @@ The standard viewer remains bound to localhost only:
 ```bash
 sudo setfacl -m u:"$(id -un)":rw /dev/ttyUSB0
 nice -n 15 ionice -c3 .venv/bin/python tools/live_viewer.py \
-  --device /dev/ttyUSB0 --baud 921600 --bind 127.0.0.1 \
+  --port /dev/ttyUSB0 --baud 921600 --bind 127.0.0.1 \
   --http-port 8765 --fps 5
 ```
 
-Open `http://127.0.0.1:8765/` and use **Laser on** / **Laser off**. The temporary
+Open `http://127.0.0.1:8765/` and use **Laser on** / **Laser off**. The page asks
+for confirmation before switching on and shows a red banner with the remaining
+on-time while the laser is lit. The temporary
 ACL may need to be reapplied when reconnecting USB because a new device node can
 be created.
