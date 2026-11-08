@@ -77,8 +77,9 @@ MAX_STREAM_CLIENTS = 3
 MAX_BODY_BYTES = 256
 # A control can sit behind one frame request and then waits for its own ack.
 HTTP_CONTROL_WAIT_S = FRAME_TIMEOUT_S + CONTROL_ACK_TIMEOUT_S + 1.0
-# Worst case after stop: one control ack, then LED OFF and laser OFF acks.
-WORKER_JOIN_TIMEOUT_S = CONTROL_ACK_TIMEOUT_S + 2 * SHUTDOWN_ACK_TIMEOUT_S + 4.0
+# Worst case after stop: one in-flight control ack, one automatic laser-OFF ack,
+# then the LED OFF and laser OFF shutdown acks, plus margin for write timeouts.
+WORKER_JOIN_TIMEOUT_S = 2 * CONTROL_ACK_TIMEOUT_S + 2 * SHUTDOWN_ACK_TIMEOUT_S + 4.0
 LASER_STATE_UNKNOWN_WARNING = "LASER STATE UNKNOWN - use the manual switch"
 
 SECURITY_HEADERS = {
@@ -432,7 +433,8 @@ class Viewer:
             print(f"LASER_AUTO_OFF_ERROR {exc}", flush=True)
 
     def _process_controls(self, port: SerialPort) -> None:
-        while True:
+        # On stop, leave the rest to fail_pending_controls so shutdown stays bounded.
+        while not self.stop_event.is_set():
             try:
                 control = self.controls.get_nowait()
             except queue.Empty:
