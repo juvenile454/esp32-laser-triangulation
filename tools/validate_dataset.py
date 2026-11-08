@@ -1,137 +1,143 @@
 #!/usr/bin/env python3
-"""Validate versioned laser sample metadata and referenced image files."""
+"""Validate versioned laser sample metadata and referenced image files.
+
+Each file is first checked against schemas/sample.schema.json (JSON Schema
+draft 2020-12), then the referenced images are checked for existence, SHA-256
+and pixel dimensions.
+"""
 
 from __future__ import annotations
 
 import argparse
+import datetime
+import functools
 import hashlib
 import json
+import sys
 from pathlib import Path
+from typing import Any
 
+from jsonschema import Draft202012Validator
 from PIL import Image
 
+from cli_common import description
+
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "sample.schema.json"
 EVIDENCE_TIERS = {"reusable_real_evidence", "synthetic_fixture", "calibration_grade_real"}
+METADATA_GLOB = "*metadata.json"
 
 
-def require(mapping: dict, path: str):
-    value = mapping
-    for component in path.split("."):
-        if not isinstance(value, dict) or component not in value:
-            raise ValueError(f"missing required field: {path}")
-        value = value[component]
-    return value
+@functools.lru_cache(maxsize=1)
+def schema_validator() -> Draft202012Validator:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema)
+
+
+def schema_errors(payload: Any) -> list[str]:
+    """Human-readable schema violations, sorted by location ('' when valid)."""
+    messages = []
+    for error in schema_validator().iter_errors(payload):
+        location = "/".join(str(part) for part in error.absolute_path) or "<root>"
+        messages.append(f"{location}: {error.message}")
+    return sorted(messages)
+
+
+def validate_schema(payload: Any) -> None:
+    errors = schema_errors(payload)
+    if errors:
+        more = f" (+{len(errors) - 3} more)" if len(errors) > 3 else ""
+        raise ValueError("schema violation: " + "; ".join(errors[:3]) + more)
+    assert isinstance(payload, dict)
+    timestamp = payload["capture"]["timestamp_utc"]
+    if timestamp is not None:
+        try:
+            datetime.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"capture/timestamp_utc is not a real date-time: {timestamp!r}") from exc
 
 
 def image_path(metadata_path: Path, value: str, data_root: Path | None = None) -> Path:
     """Resolve an image reference.
 
-    Absolute paths are used as-is. Relative paths resolve against ``data_root``
-    when one is given (the shared capture directory), otherwise against the
-    directory holding the metadata file.
+    Without ``data_root``, relative paths resolve against the metadata file's
+    directory and absolute paths are used as-is. With ``data_root`` (the shared
+    capture directory) the reference must be relative and stay inside it.
     """
     candidate = Path(value)
+    if data_root is None:
+        return candidate if candidate.is_absolute() else metadata_path.parent / candidate
     if candidate.is_absolute():
-        return candidate
-    return (data_root if data_root is not None else metadata_path.parent) / candidate
+        raise ValueError(f"absolute image path not allowed with --data-root: {value}")
+    root = data_root.resolve()
+    resolved = (root / candidate).resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError(f"image path escapes --data-root: {value}")
+    return resolved
+
+
+def check_image(path: Path, reference: dict[str, Any], state: str, size: tuple[int, int], data_root: Path | None) -> None:
+    image_file = image_path(path, str(reference["file"]), data_root)
+    if not image_file.is_file():
+        hint = "" if data_root is not None else " (use --data-root to point at the capture directory)"
+        raise ValueError(f"images.{state}: image not found: {image_file}{hint}")
+    actual_hash = hashlib.sha256(image_file.read_bytes()).hexdigest()
+    if actual_hash != reference["sha256"]:
+        raise ValueError(f"images.{state}: SHA-256 mismatch for {image_file}")
+    with Image.open(image_file) as image:
+        image.load()
+        if image.size != size:
+            raise ValueError(f"images.{state}: dimension mismatch for {image_file}: {image.size} != {size}")
 
 
 def validate(path: Path, data_root: Path | None = None) -> None:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if require(payload, "schema_version") != "1.0":
-        raise ValueError("unsupported schema_version")
-    if not str(require(payload, "sample_id")):
-        raise ValueError("empty sample_id")
-    tier = require(payload, "evidence_tier")
-    if tier not in EVIDENCE_TIERS:
-        raise ValueError(f"invalid evidence_tier: {tier}")
-    width = require(payload, "capture.camera.width_px")
-    height = require(payload, "capture.camera.height_px")
-    if not isinstance(width, int) or isinstance(width, bool) or width < 1:
-        raise ValueError("capture.camera.width_px must be a positive integer")
-    if not isinstance(height, int) or isinstance(height, bool) or height < 1:
-        raise ValueError("capture.camera.height_px must be a positive integer")
-    require(payload, "capture.registered_pair")
-    require(payload, "capture.timestamp_utc")
-    pose = payload["capture"].get("robot_pose")
-    if pose is not None:
-        if not isinstance(pose, dict):
-            raise ValueError("capture.robot_pose must be an object or null")
-        if not str(pose.get("frame", "")):
-            raise ValueError("capture.robot_pose.frame must name the reference frame")
-        for axis in ("x_mm", "y_mm", "z_mm", "rx_deg", "ry_deg", "rz_deg"):
-            value = pose.get(axis)
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                raise ValueError(f"capture.robot_pose.{axis} must be a number")
-    require(payload, "geometry.working_distance_mm")
-    require(payload, "geometry.baseline_mm")
-    require(payload, "geometry.laser_angle_deg")
-    require(payload, "ground_truth.lateral_offset_mm")
-    require(payload, "ground_truth.height_offset_mm")
-    limitations = require(payload, "limitations")
-    if not isinstance(limitations, list):
-        raise ValueError("limitations must be a list")
-
+    """Raise ValueError describing the first problem with one metadata file."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"not valid JSON: {exc}") from exc
+    validate_schema(payload)
+    camera = payload["capture"]["camera"]
+    size = (camera["width_px"], camera["height_px"])
     for state in ("laser_on", "laser_off"):
-        reference = require(payload, f"images.{state}")
-        if not isinstance(reference, dict):
-            raise ValueError(f"images.{state} must be an object")
-        file_name = require(payload, f"images.{state}.file")
-        expected_hash = require(payload, f"images.{state}.sha256")
-        if not isinstance(expected_hash, str) or len(expected_hash) != 64:
-            raise ValueError(f"images.{state}.sha256 must contain 64 hex characters")
-        try:
-            int(expected_hash, 16)
-        except ValueError as exc:
-            raise ValueError(f"images.{state}.sha256 is not hexadecimal") from exc
-        image_file = image_path(path, str(file_name), data_root)
-        if not image_file.is_file():
-            raise ValueError(f"referenced image not found: {image_file}")
-        actual_hash = hashlib.sha256(image_file.read_bytes()).hexdigest()
-        if actual_hash != expected_hash:
-            raise ValueError(f"SHA-256 mismatch for {image_file}")
-        with Image.open(image_file) as image:
-            image.load()
-            if image.size != (width, height):
-                raise ValueError(
-                    f"dimension mismatch for {image_file}: {image.size} != {(width, height)}"
-                )
-
-    if tier == "calibration_grade_real":
-        for field in (
-            "capture.fixture_revision",
-            "capture.camera.exposure",
-            "capture.camera.gain",
-            "capture.camera.white_balance_locked",
-            "geometry.working_distance_mm",
-        ):
-            if require(payload, field) is None:
-                raise ValueError(f"calibration-grade sample cannot leave {field} unknown")
+        check_image(path, payload["images"][state], state, size, data_root)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("paths", nargs="+", type=Path)
+def collect(paths: list[Path]) -> list[Path]:
+    files: list[Path] = []
+    for path in paths:
+        if path.is_dir():
+            files.extend(sorted(path.rglob(METADATA_GLOB)))
+        else:
+            files.append(path)
+    return files
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=description(__doc__),
+        epilog=f"Directories are searched recursively for '{METADATA_GLOB}'. Exit codes: 0 all valid, 1 any invalid, 2 usage error.",
+    )
+    parser.add_argument("paths", nargs="+", type=Path, help="metadata JSON files or directories to search")
     parser.add_argument(
         "--data-root",
         type=Path,
         default=None,
-        help="resolve relative image paths against this directory instead of the metadata file's directory",
+        help="resolve relative image paths against this directory instead of the metadata file's directory; "
+             "absolute paths and '..' escapes are then rejected",
     )
-    args = parser.parse_args()
-    files: list[Path] = []
-    for path in args.paths:
-        if path.is_dir():
-            files.extend(sorted(path.rglob("metadata.json")))
-        else:
-            files.append(path)
+    args = parser.parse_args(argv)
+    if args.data_root is not None and not args.data_root.is_dir():
+        parser.error(f"--data-root is not a directory: {args.data_root}")
+    files = collect(args.paths)
     if not files:
-        raise SystemExit("No metadata files found")
+        parser.error(f"no metadata files ('{METADATA_GLOB}') found")
     failures = 0
     for path in files:
         try:
             validate(path, args.data_root)
             print(f"METADATA_PASS {path}")
-        except Exception as exc:
+        except (ValueError, OSError) as exc:
             failures += 1
             print(f"METADATA_FAIL {path}: {exc}")
     print(f"METADATA_RESULT: {'PASS' if failures == 0 else 'FAIL'} ({len(files) - failures}/{len(files)})")
@@ -139,4 +145,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

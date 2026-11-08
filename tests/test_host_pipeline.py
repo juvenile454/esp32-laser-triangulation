@@ -304,7 +304,7 @@ class HostPipelineTests(unittest.TestCase):
         near, far, baseline_mm, focal_px = 380.0, 400.0, 70.0, 375.0
         shift = focal_px * baseline_mm * (1.0 / near - 1.0 / far)
         self.assertAlmostEqual(
-            focal_length_from_shift(baseline_mm, far, far - near, shift),
+            focal_length_from_shift(baseline_mm, far, far - near, shift, TILTED_LASER),
             focal_px, places=6,
         )
 

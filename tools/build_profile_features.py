@@ -10,27 +10,46 @@ import argparse
 import csv
 import json
 import statistics
+import sys
 from pathlib import Path
+
+from cli_common import description, fail
 
 PROFILE_FEATURES = 64
 QUALITY_FEATURES = 5
+REQUIRED_COLUMNS = ("x_px", "valid", "peak_score", "width_px", "saturated", "secondary_candidate")
+PROG = "build_profile_features"
 
 
 def load_profile(path: Path) -> list[dict[str, float | bool]]:
-    rows = []
+    rows: list[dict[str, float | bool]] = []
     with path.open(newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            rows.append({
-                "x_px": float(row["x_px"]),
-                "valid": str(row["valid"]).lower() in {"1", "true"},
-                "peak": float(row["peak_score"]),
-                "width": float(row["width_px"]),
-                "saturated": str(row["saturated"]).lower() in {"1", "true"},
-                "secondary": str(row["secondary_candidate"]).lower() in {"1", "true"},
-            })
+        reader = csv.DictReader(handle)
+        missing = [column for column in REQUIRED_COLUMNS if column not in (reader.fieldnames or [])]
+        if missing:
+            raise ValueError(
+                f"profile CSV is missing column(s) {', '.join(missing)}; expected the profile.csv "
+                f"written by analyze_laser_pair.py ({', '.join(REQUIRED_COLUMNS)})"
+            )
+        for line, row in enumerate(reader, 2):
+            try:
+                rows.append(parse_row(row))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid value at CSV line {line}: {exc}") from exc
     if not rows:
         raise ValueError("empty profile")
     return rows
+
+
+def parse_row(row: dict[str, str]) -> dict[str, float | bool]:
+    return {
+        "x_px": float(row["x_px"]),
+        "valid": str(row["valid"]).lower() in {"1", "true"},
+        "peak": float(row["peak_score"]),
+        "width": float(row["width_px"]),
+        "saturated": str(row["saturated"]).lower() in {"1", "true"},
+        "secondary": str(row["secondary_candidate"]).lower() in {"1", "true"},
+    }
 
 
 def nearest_valid(rows: list[dict[str, float | bool]], index: float) -> float | None:
@@ -74,17 +93,24 @@ def build_features(rows: list[dict[str, float | bool]]) -> dict[str, object]:
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("profile_csv", type=Path)
-    parser.add_argument("output_json", type=Path)
-    args = parser.parse_args()
-    features = build_features(load_profile(args.profile_csv))
-    args.output_json.parent.mkdir(parents=True, exist_ok=True)
-    args.output_json.write_text(json.dumps(features, indent=2) + "\n", encoding="utf-8")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog=PROG,
+        description=description(__doc__),
+        epilog="Exit codes: 0 success, 1 unreadable/invalid profile, 2 usage error.",
+    )
+    parser.add_argument("profile_csv", type=Path, help="profile.csv written by analyze_laser_pair.py")
+    parser.add_argument("output_json", type=Path, help="destination feature JSON")
+    args = parser.parse_args(argv)
+    try:
+        features = build_features(load_profile(args.profile_csv))
+        args.output_json.parent.mkdir(parents=True, exist_ok=True)
+        args.output_json.write_text(json.dumps(features, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        raise fail(PROG, f"{args.profile_csv}: {exc}") from None
     print(f"FEATURE_RESULT: PASS ({features['total_features']} values -> {args.output_json})")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
