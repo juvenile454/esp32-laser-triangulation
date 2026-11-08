@@ -49,7 +49,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+from cli_common import description, float_range, json_safe
 
 Vector = tuple[float, float, float]
 
@@ -179,7 +183,8 @@ def observe(scan: SeamScan, translation: Vector, rotation: Vector,
     """The two numbers this scan would report for the given displacement."""
     rows = observation_matrix(scan, reference_point)
     parameters = list(translation) + list(rotation)
-    return tuple(sum(a * b for a, b in zip(row, parameters, strict=True)) for row in rows)
+    first, second = (sum(a * b for a, b in zip(row, parameters, strict=True)) for row in rows)
+    return float(first), float(second)
 
 
 def solve_displacement(
@@ -433,7 +438,10 @@ def scenario_base_plate_corners(
     """
     half_length = length_mm / 2.0
     half_width = width_mm / 2.0
-    reach = lambda half: half - inset_mm  # noqa: E731
+
+    def reach(half: float) -> float:
+        return half - inset_mm
+
     return [
         # front and back edges run along x, so each is crossed by a plane whose
         # normal is x; scanned near both ends
@@ -457,14 +465,15 @@ def report(title: str, lines: list[str]) -> None:
     print()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--translation-mm", nargs=3, type=float, default=(1.8, -0.6, 0.4),
-                        metavar=("X", "Y", "Z"))
-    parser.add_argument("--rotation-mrad", nargs=3, type=float, default=(0.0, 0.0, 2.5),
-                        metavar=("RX", "RY", "RZ"))
-    parser.add_argument("--json", type=str)
-    args = parser.parse_args()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=description(__doc__))
+    parser.add_argument("--translation-mm", nargs=3, type=float_range(-1000.0, 1000.0), default=(1.8, -0.6, 0.4),
+                        metavar=("X", "Y", "Z"), help="simulated part translation in mm (default 1.8 -0.6 0.4)")
+    parser.add_argument("--rotation-mrad", nargs=3, type=float_range(-500.0, 500.0), default=(0.0, 0.0, 2.5),
+                        metavar=("RX", "RY", "RZ"), help="simulated small rotation in mrad (default 0 0 2.5)")
+    parser.add_argument("--json", type=Path,
+                        help="also write the results to this path (unsolvable gains/NaN written as null)")
+    args = parser.parse_args(argv)
 
     translation: Vector = tuple(args.translation_mm)
     rotation: Vector = tuple(value / 1000.0 for value in args.rotation_mrad)
@@ -559,7 +568,7 @@ def main() -> int:
         "several different angles against each seam:",
     ])
     print(f"  {'crossing angle':>15} {'|t| error':>13} {'noise gain':>13}")
-    rolls = []
+    rolls: list[dict[str, float | None]] = []
     for roll_deg in (0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 85.0):
         roll = math.radians(roll_deg)
         rolled = []
@@ -689,11 +698,14 @@ def main() -> int:
     ])
 
     if args.json:
-        with open(args.json, "w", encoding="utf-8") as handle:
-            json.dump(results, handle, indent=2)
-            handle.write("\n")
+        try:
+            with args.json.open("w", encoding="utf-8") as handle:
+                json.dump(json_safe(results), handle, indent=2, allow_nan=False)
+                handle.write("\n")
+        except OSError as exc:
+            parser.exit(1, f"{parser.prog}: error: cannot write {args.json}: {exc}\n")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
