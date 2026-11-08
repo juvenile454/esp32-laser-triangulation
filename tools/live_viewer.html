@@ -3,22 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewer-token" content="{{VIEWER_TOKEN}}">
 <title>GOOUUU OV3660 live view</title>
 <style>
 :root { color-scheme: dark; font-family: system-ui, sans-serif; }
 body { margin: 0; background: #111; color: #eee; text-align: center; }
 header { padding: .7rem 1rem; background: #1c1c1c; position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 1rem; margin: 0 0 .3rem; }
 .status { display: flex; flex-wrap: wrap; justify-content: center; gap: .7rem 1.4rem; font-variant-numeric: tabular-nums; }
 .viewer { position: relative; display: inline-block; margin: 1rem; max-width: calc(100vw - 2rem); }
-.viewer img { display: block; width: min(960px, calc(100vw - 2rem)); height: auto; image-rendering: auto; }
+.viewer img { display: block; width: min(960px, calc(100vw - 2rem)); height: auto; min-height: 120px; image-rendering: auto; }
 .cross-v,.cross-h { position: absolute; background: rgba(255,40,40,.75); pointer-events: none; }
 .cross-v { width: 1px; height: 100%; left: 50%; top: 0; }
 .cross-h { height: 1px; width: 100%; top: 50%; left: 0; }
 .grid { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(255,255,255,.16) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.16) 1px, transparent 1px); background-size: 33.333% 33.333%; }
 .controls { margin: 0 1rem 1rem; }
 button { margin: .35rem; padding: .65rem 1rem; font-size: 1rem; cursor: pointer; }
+button:disabled { opacity: .5; cursor: progress; }
 .light-controls { max-width: 900px; margin: 0 auto 1rem; padding: .8rem; background: #1c1c1c; border-radius: .5rem; }
-.light-controls h3 { margin: 0 0 .6rem; }
+.light-controls h2 { margin: 0 0 .6rem; font-size: 1.1rem; }
 .light-controls label { display: inline-flex; align-items: center; gap: .45rem; margin: .35rem .7rem; }
 .light-off { border-color: #888; background: #222; color: #fff; }
 .preset-white { background: #eee; color: #111; }
@@ -29,13 +32,19 @@ button { margin: .35rem; padding: .65rem 1rem; font-size: 1rem; cursor: pointer;
 .preset-cyan { background: #188; color: #fff; }
 .preset-magenta { background: #818; color: #fff; }
 .note { max-width: 900px; margin: 0 auto 1rem; color: #bbb; padding: 0 1rem; }
+.note-tight { margin: .5rem 0 0; }
 #error { color: #ff7777; }
+#laser-banner { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; padding: .8rem; background: #c00; color: #fff; font-size: 1.4rem; font-weight: bold; letter-spacing: .05em; }
+#laser-banner[hidden] { display: none; }
+#stream-state { color: #bbb; }
 </style>
+<script src="/viewer.js" defer></script>
 </head>
 <body>
+<div id="laser-banner" role="alert" hidden>LASER ON</div>
 <header>
-  <strong>GOOUUU ESP32-S3-CAM · OV3660 · USB-TTL</strong>
-  <div class="status">
+  <h1>GOOUUU ESP32-S3-CAM · OV3660 · USB-TTL</h1>
+  <div class="status" id="status" role="status" aria-live="polite">
     <span>FPS: <b id="fps">–</b></span>
     <span>Frames: <b id="frames">–</b></span>
     <span>Focus: <b id="focus">–</b></span>
@@ -45,124 +54,52 @@ button { margin: .35rem; padding: .65rem 1rem; font-size: 1rem; cursor: pointer;
     <span>Laser: <b id="laser">Unknown</b></span>
     <span>Camera automation: <b id="camera-automation">Unknown</b></span>
   </div>
-  <div id="error"></div>
+  <div id="error" role="alert"></div>
 </header>
+<main>
 <div class="viewer">
-  <img src="/stream.mjpg" alt="OV3660 live view">
+  <img id="stream" alt="OV3660 live view" data-src="/stream.mjpg">
   <div class="grid"></div><div class="cross-v"></div><div class="cross-h"></div>
 </div>
+<div id="stream-state" role="status" aria-live="polite"></div>
 <div class="controls">
-  <div class="light-controls">
-    <h3>Board LED · max. 64/255 per channel</h3>
+  <section class="light-controls" aria-labelledby="led-heading">
+    <h2 id="led-heading">Board LED · max. 64/255 per channel</h2>
     <div>
-      <button class="light-off" onclick="setLight(0,0,0)">LED off</button>
-      <button class="preset-white" onclick="preset(1,1,1)">White</button>
-      <button class="preset-red" onclick="preset(1,0,0)">Red</button>
-      <button class="preset-green" onclick="preset(0,1,0)">Green</button>
-      <button class="preset-blue" onclick="preset(0,0,1)">Blue</button>
-      <button class="preset-yellow" onclick="preset(1,1,0)">Yellow</button>
-      <button class="preset-cyan" onclick="preset(0,1,1)">Cyan</button>
-      <button class="preset-magenta" onclick="preset(1,0,1)">Magenta</button>
+      <button type="button" class="light-off" data-light="0,0,0">LED off</button>
+      <button type="button" class="preset-white" data-preset="1,1,1">White</button>
+      <button type="button" class="preset-red" data-preset="1,0,0">Red</button>
+      <button type="button" class="preset-green" data-preset="0,1,0">Green</button>
+      <button type="button" class="preset-blue" data-preset="0,0,1">Blue</button>
+      <button type="button" class="preset-yellow" data-preset="1,1,0">Yellow</button>
+      <button type="button" class="preset-cyan" data-preset="0,1,1">Cyan</button>
+      <button type="button" class="preset-magenta" data-preset="1,0,1">Magenta</button>
     </div>
     <label>Colour <input id="color" type="color" value="#ffffff"></label>
-    <label>Brightness <input id="brightness" type="range" min="1" max="64" value="32"><output id="brightness-value">32</output>/255</label>
-    <button onclick="applySelectedColor()">Apply selected colour</button>
-  </div>
-  <div class="light-controls">
-    <h3>Camera · exposure / gain / white balance</h3>
-    <button onclick="cameraControl('status')">Read status</button>
-    <button onclick="cameraControl('lock')">Lock automation</button>
-    <button onclick="cameraControl('auto')">Enable automation</button>
+    <label>Brightness <input id="brightness" type="range" min="1" max="64" value="32"><output id="brightness-value" for="brightness">32</output>/255</label>
+    <button type="button" id="apply-color">Apply selected colour</button>
+  </section>
+  <section class="light-controls" aria-labelledby="camera-heading">
+    <h2 id="camera-heading">Camera · exposure / gain / white balance</h2>
+    <button type="button" data-camera="status">Read status</button>
+    <button type="button" data-camera="lock">Lock automation</button>
+    <button type="button" data-camera="auto">Enable automation</button>
     <div id="camera-controls">Not read yet</div>
-  </div>
-  <div class="light-controls">
-    <h3>Line laser · requires the transistor driver</h3>
-    <button class="preset-red" onclick="laser(true)">Laser on</button>
-    <button class="light-off" onclick="laser(false)">Laser off</button>
-    <p class="note" style="margin:.5rem 0 0">Without the transistor driver the laser sits permanently on the 5 V rail
-    and these buttons have no effect. Stopping the viewer switches the laser off.
-    The firmware has no maximum on-time: keep the manual switch within reach.</p>
-  </div>
-  <button onclick="saveFrame()">Save current frame</button>
-  <button onclick="shutdownViewer()">Stop viewer</button><br>
-  <span id="message"></span>
+  </section>
+  <section class="light-controls" aria-labelledby="laser-heading">
+    <h2 id="laser-heading">Line laser · requires the transistor driver</h2>
+    <button type="button" class="preset-red" data-laser="on">Laser on</button>
+    <button type="button" class="light-off" data-laser="off">Laser off</button>
+    <p class="note note-tight">Without the transistor driver the laser sits permanently on the 5 V rail
+    and these buttons have no effect. The viewer switches the laser off after the maximum on-time
+    (<span id="laser-max">–</span> s), when this page stops polling for <span id="laser-heartbeat">–</span> s,
+    and when it stops. Keep the manual switch within reach.</p>
+  </section>
+  <button type="button" id="save">Save current frame</button>
+  <button type="button" id="shutdown">Stop viewer</button><br>
+  <span id="message" role="status" aria-live="polite"></span>
 </div>
 <p class="note">The focus value is relative: with the same scene and lighting, higher usually means sharper. Fix the field of view and working height first, then focus. Test colours one at a time and switch the LED off before laser work.</p>
-<script>
-async function refresh() {
-  try {
-    const s = await (await fetch('/status.json', {cache:'no-store'})).json();
-    document.getElementById('fps').textContent = s.fps.toFixed(2);
-    document.getElementById('frames').textContent = s.frames;
-    document.getElementById('focus').textContent = s.focus.toFixed(1);
-    document.getElementById('best').textContent = s.best_focus.toFixed(1);
-    document.getElementById('size').textContent = `${s.width}×${s.height} · ${s.bytes} B`;
-    const [r,g,b] = s.light_rgb;
-    document.getElementById('light').textContent = (r || g || b) ? `RGB ${r}/${g}/${b}` : 'Off';
-    document.getElementById('laser').textContent = s.laser;
-    document.getElementById('camera-automation').textContent = s.camera_automation;
-    document.getElementById('camera-controls').textContent = s.camera_controls || 'Not read yet';
-    document.getElementById('error').textContent = s.error || '';
-  } catch (e) { document.getElementById('error').textContent = String(e); }
-}
-async function setLight(r, g, b) {
-  const response = await fetch('/light', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({r, g, b})
-  });
-  const text = await response.text();
-  document.getElementById('message').textContent = text;
-  if (!response.ok) throw new Error(text);
-  await refresh();
-}
-async function cameraControl(action) {
-  const response = await fetch('/camera', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action})
-  });
-  const text = await response.text();
-  document.getElementById('message').textContent = text;
-  if (!response.ok) throw new Error(text);
-  await refresh();
-}
-function preset(r, g, b) {
-  const level = Number(document.getElementById('brightness').value);
-  return setLight(r * level, g * level, b * level);
-}
-function applySelectedColor() {
-  const value = document.getElementById('color').value;
-  const source = [1, 3, 5].map(index => parseInt(value.slice(index, index + 2), 16));
-  const peak = Math.max(...source);
-  const level = Number(document.getElementById('brightness').value);
-  const scaled = peak ? source.map(channel => Math.round(channel * level / peak)) : [0, 0, 0];
-  return setLight(...scaled);
-}
-async function laser(on) {
-  const response = await fetch('/laser', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({on})
-  });
-  const text = await response.text();
-  document.getElementById('message').textContent = text;
-  await refresh();
-}
-async function saveFrame() {
-  const r = await fetch('/save', {method:'POST'});
-  document.getElementById('message').textContent = await r.text();
-}
-async function shutdownViewer() {
-  try { await setLight(0, 0, 0); } catch (_) {}
-  try { await laser(false); } catch (_) {}
-  const r = await fetch('/shutdown', {method:'POST'});
-  document.getElementById('message').textContent = await r.text();
-}
-document.getElementById('brightness').addEventListener('input', event => {
-  document.getElementById('brightness-value').value = event.target.value;
-});
-setInterval(refresh, 500); refresh();
-</script>
+</main>
 </body>
 </html>
