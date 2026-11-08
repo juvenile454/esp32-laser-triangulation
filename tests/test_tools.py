@@ -200,5 +200,59 @@ class SeamDisplacementTests(unittest.TestCase):
         self.assertEqual(json_safe({"a": [math.inf, 1.0, (math.nan,)]}), {"a": [None, 1.0, [None]]})
 
 
+class AnalyzeAndFeatureCliTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temporary = tempfile.TemporaryDirectory(prefix="laser-analyze-test-")
+        cls.base = Path(cls.temporary.name)
+        subprocess.run([sys.executable, str(TOOLS / "generate_synthetic_dataset.py"), str(cls.base / "data")],
+                       check=True, capture_output=True)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temporary.cleanup()
+
+    def sample(self, name: str) -> Path:
+        return next((self.base / "data").glob(f"synthetic_*_{name}"))
+
+    def analyze(self, name: str, *extra: str) -> subprocess.CompletedProcess[str]:
+        sample = self.sample(name)
+        return run_tool("analyze_laser_pair.py", "--on", str(sample / "laser_on.png"), "--off", str(sample / "laser_off.png"),
+                        "--output-dir", str(self.base / f"analysis_{name}"), *extra)
+
+    def test_invalid_profile_exits_3_and_valid_exits_0(self) -> None:
+        result = self.analyze("no_stripe")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("invalid profile", result.stderr)
+        self.assertTrue((self.base / "analysis_no_stripe" / "profile.csv").exists())
+        result = self.analyze("straight", "--prediction-window", "6", "--initial-prediction", "90")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(result.stdout)["config"]
+        self.assertEqual(config["prediction_window_px"], 6.0)
+        self.assertEqual(config["initial_prediction_px"], 90.0)
+
+    def test_analyze_usage_and_input_errors(self) -> None:
+        for extra in (["--roi", "10", "10", "5", "20"], ["--threshold", "300"], ["--ghost-ratio", "1.5"],
+                      ["--prediction-window", "-1"], ["--max-width", "0"]):
+            with self.subTest(extra=extra):
+                result = self.analyze("straight", *extra)
+                self.assertEqual(result.returncode, 2)
+                self.assertNotIn("Traceback", result.stderr)
+        result = run_tool("analyze_laser_pair.py", "--on", str(self.base / "missing.png"), "--output-dir", str(self.base / "x"))
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        result = self.analyze("straight", "--roi", "0", "0", "5000", "10")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("exceeds", result.stderr)
+
+    def test_features_reject_wrong_columns(self) -> None:
+        bad = self.base / "bad_profile.csv"
+        bad.write_text("y,x\n1,2\n", encoding="utf-8")
+        result = run_tool("build_profile_features.py", str(bad), str(self.base / "f.json"))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("missing column(s) x_px", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
