@@ -40,7 +40,7 @@ Error replies start with the command's prefix, for example
 - GPIO14 is driven low early in `setup()`. While the pin floats during reset,
   the 10 kΩ base pull-down keeps the transistor off.
 - `1` keeps the laser on until `0`, a reset or power removal. **This firmware
-  has no maximum on-time.** Draft PR #3 adds one and has not yet been tested on
+  has no maximum on-time.** Draft PR #7 adds one and has not yet been tested on
   hardware.
 - The live viewer enforces its own 60 s limit and switches the laser off when
   the browser page stops polling (see [SECURITY.md](../SECURITY.md)). This is a

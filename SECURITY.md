@@ -46,7 +46,7 @@ history. Deleting it only from the latest commit is insufficient.
   laser switch in the off position.
 - The firmware drives the verified `2N2222` low-side stage on GPIO14. Command
   `1` keeps the laser on until command `0`, a reset or power removal. **There is
-  no firmware maximum-on-time watchdog yet**; draft PR #3 adds one and has not
+  no firmware maximum-on-time watchdog yet**; draft PR #7 adds one and has not
   been tested on hardware.
 - The live viewer limits the on-time on the host side (`--laser-max-on-s`,
   default 60 s) and switches the laser off when the browser page stops polling.

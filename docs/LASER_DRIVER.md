@@ -101,7 +101,7 @@ the base low while the GPIO is high-impedance during boot or reset. These are
 startup protections, not a runtime interlock:
 
 - command `1` keeps the laser on until `0`, reset or power removal;
-- the firmware has no maximum-on-time watchdog yet (draft PR #3);
+- the firmware has no maximum-on-time watchdog yet (draft PR #7);
 - the live viewer switches the laser off after `--laser-max-on-s` (default
   60 s) and when the browser page stops polling for 5 s, but only while the
   viewer process and the USB link are alive;
