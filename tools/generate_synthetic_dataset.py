@@ -10,8 +10,11 @@ import json
 import math
 import random
 from pathlib import Path
+from typing import Any
 
 from PIL import Image
+
+from cli_common import description, output_dir_arguments, resolve_output_dir
 
 WIDTH = 320
 HEIGHT = 240
@@ -40,8 +43,16 @@ def background(seed: int) -> Image.Image:
     return Image.frombytes("RGB", (WIDTH, HEIGHT), bytes(pixels))
 
 
-def add_stripe(image: Image.Image, truth: list[float | None], amplitude: int, sigma: float, ghost_offset: float | None = None, ghost_ratio: float = 0.0) -> None:
+def rgb_pixels(image: Image.Image) -> Any:
+    """Pixel access object of an RGB image (indexable by (x, y) -> (r, g, b))."""
     pixels = image.load()
+    if pixels is None:
+        raise RuntimeError("image has no pixel data")
+    return pixels
+
+
+def add_stripe(image: Image.Image, truth: list[float | None], amplitude: int, sigma: float, ghost_offset: float | None = None, ghost_ratio: float = 0.0) -> None:
+    pixels = rgb_pixels(image)
     for y, center in enumerate(truth):
         if center is None:
             continue
@@ -57,7 +68,7 @@ def add_stripe(image: Image.Image, truth: list[float | None], amplitude: int, si
 
 
 def add_clipped_white_core(image: Image.Image, truth: list[float | None], radius: int = 2) -> None:
-    pixels = image.load()
+    pixels = rgb_pixels(image)
     for y, center in enumerate(truth):
         if center is None:
             continue
@@ -67,7 +78,7 @@ def add_clipped_white_core(image: Image.Image, truth: list[float | None], radius
 
 
 def add_clipped_warm_core(image: Image.Image, truth: list[float | None], radius: int = 2) -> None:
-    pixels = image.load()
+    pixels = rgb_pixels(image)
     for y, center in enumerate(truth):
         if center is None:
             continue
@@ -82,7 +93,7 @@ def add_specular_blob(image: Image.Image, first_x: int, last_x: int, amplitude: 
     Its total weight deliberately exceeds the true stripe's, so selecting by
     strength alone picks the blob. The width filter must reject it first.
     """
-    pixels = image.load()
+    pixels = rgb_pixels(image)
     for y in range(HEIGHT):
         for x in range(max(0, first_x), min(WIDTH, last_x + 1)):
             r, g, b = pixels[x, y]
@@ -132,17 +143,22 @@ def metadata(sample_id: str, on: Path, off: Path, limitations: list[str]) -> dic
     }
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("output", type=Path)
-    args = parser.parse_args()
-    args.output.mkdir(parents=True, exist_ok=True)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=description(__doc__))
+    output_dir_arguments(parser, "directory that receives one sub-directory per fixture plus manifest.json")
+    args = parser.parse_args(argv)
+    output = resolve_output_dir(parser, args)
+    assert output is not None
+    try:
+        output.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        parser.error(f"cannot create output directory {output}: {exc}")
 
     scenarios: list[tuple[str, list[float | None], int, float, float | None, float, list[str]]] = []
     scenarios.append(("straight", [90.0 + 0.12 * y for y in range(HEIGHT)], 190, 1.2, None, 0.0, []))
     scenarios.append(("step", [92.0 + 0.08 * y if y < 120 else 132.0 + 0.08 * y for y in range(HEIGHT)], 185, 1.3, None, 0.0, []))
     scenarios.append(("fillet_like", [105.0 + 0.0025 * (y - 120) ** 2 for y in range(HEIGHT)], 175, 1.4, None, 0.0, []))
-    gap = [112.0 + 0.05 * y for y in range(HEIGHT)]
+    gap: list[float | None] = [112.0 + 0.05 * y for y in range(HEIGHT)]
     for y in range(80, 125):
         gap[y] = None
     scenarios.append(("occlusion_gap", gap, 180, 1.3, None, 0.0, ["Rows 80..124 intentionally contain no stripe."]))
@@ -167,10 +183,11 @@ def main() -> int:
          "Selecting by strength before filtering width loses the stripe entirely."],
     ))
 
-    manifest = {"generator_version": 1, "width_px": WIDTH, "height_px": HEIGHT, "samples": []}
+    manifest_samples: list[dict[str, str]] = []
+    manifest: dict[str, object] = {"generator_version": 1, "width_px": WIDTH, "height_px": HEIGHT, "samples": manifest_samples}
     for index, (name, truth, amplitude, sigma, ghost_offset, ghost_ratio, limitations) in enumerate(scenarios, 1):
         sample_id = f"synthetic_{index:03d}_{name}"
-        sample_dir = args.output / sample_id
+        sample_dir = output / sample_id
         sample_dir.mkdir(parents=True, exist_ok=True)
         off = background(1000 + index)
         on = off.copy()
@@ -194,9 +211,9 @@ def main() -> int:
                 writer.writerow((y, "" if x is None else f"{x:.6f}", str(x is not None).lower()))
         item_metadata = metadata(sample_id, on_path, off_path, limitations)
         (sample_dir / "metadata.json").write_text(json.dumps(item_metadata, indent=2) + "\n", encoding="utf-8")
-        manifest["samples"].append({"sample_id": sample_id, "directory": sample_id})
-    (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    print(f"SYNTHETIC_RESULT: PASS ({len(scenarios)} samples in {args.output})")
+        manifest_samples.append({"sample_id": sample_id, "directory": sample_id})
+    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    print(f"SYNTHETIC_RESULT: PASS ({len(scenarios)} samples in {output})")
     return 0
 
 
