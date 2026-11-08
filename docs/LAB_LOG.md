@@ -250,7 +250,7 @@ This validates manual off, floating-input off, direct 3.3 V base control,
 firmware GPIO14 control and the viewer's complete USB-UART command path. It does
 not yet validate a rigid-fixture `R` pair or prolonged operation. No multi-hour
 soak has run, the laser's primary continuous-duty rating remains unknown, and
-firmware has no maximum-on-time watchdog. The exact circuit and operating
+the firmware of that date had no maximum-on-time watchdog. The exact circuit and operating
 boundary are in [LASER_DRIVER.md](LASER_DRIVER.md).
 
 ## Explicitly blocked until rigid fixture completion

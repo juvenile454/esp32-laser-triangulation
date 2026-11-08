@@ -30,9 +30,10 @@
 > This project switches a **5 mW, 650 nm line laser**: Class IIIa by its US
 > label, roughly **Class 3R under IEC 60825-1**. The power is taken from the
 > module label, not measured. Never look into the beam or its reflections.
-> The firmware has **no maximum laser-on timeout yet**. The live viewer
-> switches off after 60 s, but that is no interlock. Keep the manual switch in the
-> laser's 5 V lead within reach and never leave the enabled setup unattended.
+> The firmware's laser watchdogs (60 s on-time, 10 s host silence) are
+> **compiled but not yet verified on the board**, and the live viewer's own
+> 60 s limit is no interlock either. Keep the manual switch in the laser's 5 V
+> lead within reach and never leave the enabled setup unattended.
 > See [SECURITY.md](SECURITY.md).
 
 > [!NOTE]
@@ -266,7 +267,8 @@ boards/           PlatformIO board definition
 - [x] Portable C++ extractor with Python parity, sanitizers and twelve fixtures
 - [x] Seam-corner fit and the geometry accuracy budget
 - [x] Host-side laser limit and cross-origin protection in the live viewer
-- [ ] Maximum laser-on timeout in firmware ([draft PR #7](https://github.com/juvenile454/esp32-laser-triangulation/pull/7)), then a supervised soak test
+- [x] Framed laser-on command and laser watchdogs in firmware (compiled)
+- [ ] Supervised board test of the firmware watchdogs, then a soak test
 - [ ] Rigid rail fixture with a 30–45° triangulation angle
 - [ ] Unclipped stripe core: lower exposure and gain, 650 nm band-pass filter
 - [ ] Measured focal length, then pixel → mm calibration with held-out validation

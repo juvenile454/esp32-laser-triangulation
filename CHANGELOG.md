@@ -8,6 +8,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- Firmware: the laser switches on only with the framed line command
+  `@LASER ON`; a bare `1` is refused. Unknown bytes and malformed commands force
+  the laser off.
+- Firmware: the laser switches off after 60 s on-time (`reason=timeout`) and
+  after 10 s without host traffic (`reason=host_silence`). A `0` is honoured
+  between 2 KiB chunks of a frame transfer. A shutdown handler, the loop task
+  watchdog and a GPIO pull-down cover restarts and hangs. *Compiled, not yet
+  verified on the board.*
 - The live viewer rejects foreign `Host` headers (421), cross-origin and
   non-JSON `POST`s and requests without its per-start token. Before, any web
   page open in the same browser could switch the laser on. Responses carry a
@@ -21,6 +29,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Firmware: `M` re-initialises the camera driver for RGB565 and back to JPEG
+  (the pixel-format switch alone could not work). `R` reports `PAIR_END ok=1` or
+  `PAIR_ERROR <reason>`; camera commands check readiness; numeric arguments no
+  longer swallow the next command; every text line ends in `\r\n`.
+- Firmware is built as C++17 with `-Wall -Wextra -Werror` for `src/`, and the
+  boot report shows the physical flash size.
+- Host tools send `@LASER ON` (`serial_protocol.LASER_ON_COMMAND`).
 - **Contract v4.** The continuity prediction follows only tracked selections,
   so a one-row gap can no longer hand the window to a foreign blob. Non-finite
   or out-of-range `ghost_ratio`, `minimum_valid_ratio`, `prediction_window_px`
