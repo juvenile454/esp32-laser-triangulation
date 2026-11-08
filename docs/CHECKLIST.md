@@ -56,7 +56,7 @@ Still required after mechanical installation:
   pair in the rigid fixture.
 - [ ] Run a supervised staged thermal/connection soak before any prolonged use.
 - [x] Host-side maximum on-time and page heartbeat in the live viewer.
-- [ ] Verify the firmware maximum-on-time watchdog (draft PR #3) on the board
+- [ ] Verify the firmware maximum-on-time watchdog (draft PR #7) on the board
   before considering unattended operation.
 
 ## 3. Set focus and camera controls

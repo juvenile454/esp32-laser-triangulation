@@ -31,8 +31,8 @@ Snapshot of what is verified, blocked and open. Last hardware session:
 
 ## Open
 
-- Firmware maximum laser-on time and framed laser-on command: draft PR #3,
+- Firmware maximum laser-on time and framed laser-on command: draft PR #7,
   compile-only, needs a supervised hardware test.
 - RGB565 frame (`M`): fails with the current firmware's pixel-format switch;
-  PR #3 re-initialises the driver, not yet run on hardware.
+  PR #7 re-initialises the driver, not yet run on hardware.
 - Registered pair `R` in the final fixture, and a supervised thermal soak.

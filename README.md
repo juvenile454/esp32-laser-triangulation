@@ -256,7 +256,7 @@ boards/           PlatformIO board definition
 - [x] Portable C++ extractor with Python parity, sanitizers and twelve fixtures
 - [x] Seam-corner fit and the geometry accuracy budget
 - [x] Host-side laser limit and cross-origin protection in the live viewer
-- [ ] Maximum laser-on timeout in firmware ([draft PR #3](https://github.com/juvenile454/esp32-laser-triangulation/pull/3)), then a supervised soak test
+- [ ] Maximum laser-on timeout in firmware ([draft PR #7](https://github.com/juvenile454/esp32-laser-triangulation/pull/7)), then a supervised soak test
 - [ ] Rigid rail fixture with a 30–45° triangulation angle
 - [ ] Unclipped stripe core: lower exposure and gain, 650 nm band-pass filter
 - [ ] Measured focal length, then pixel → mm calibration with held-out validation
