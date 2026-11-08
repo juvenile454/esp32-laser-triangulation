@@ -21,7 +21,7 @@ from pathlib import Path
 import serial
 from PIL import Image, ImageStat
 
-from capture_frame import fnv1a32, read_exact, read_frame_end, read_header, wait_for_camera
+from serial_protocol import read_frame, wait_for_camera
 
 
 def read_line(port: serial.Serial, deadline: float) -> str:
@@ -42,27 +42,8 @@ def expect_line(port: serial.Serial, prefix: str, deadline: float) -> str:
 
 
 def read_one_frame(port: serial.Serial, deadline: float) -> tuple[bytes, int, int]:
-    fields = read_header(port, deadline)
-    length = int(fields[1])
-    width = int(fields[2])
-    height = int(fields[3])
-    expected_hash = int(fields[5], 16)
-    if not 1024 <= length <= 2_000_000:
-        raise RuntimeError(f"implausible JPEG length: {length}")
-    payload = read_exact(port, length, deadline)
-    read_frame_end(port, deadline)
-    if not payload.startswith(b"\xFF\xD8") or not payload.endswith(b"\xFF\xD9"):
-        raise RuntimeError("invalid JPEG markers")
-    actual = fnv1a32(payload)
-    if actual != expected_hash:
-        raise RuntimeError(f"checksum mismatch device={expected_hash:08X} host={actual:08X}")
-    with Image.open(io.BytesIO(payload)) as image:
-        image.verify()
-    with Image.open(io.BytesIO(payload)) as image:
-        image.load()
-        if image.size != (width, height):
-            raise RuntimeError(f"dimension mismatch header={width}x{height} jpeg={image.size}")
-    return payload, width, height
+    frame = read_frame(port, deadline)
+    return frame.payload, frame.width, frame.height
 
 
 def send_command(port: serial.Serial, payload: bytes, prefix: str, timeout: float = 3.0) -> str:
