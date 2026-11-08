@@ -6,8 +6,18 @@
 
 [![CI](https://github.com/juvenile454/esp32-laser-triangulation/actions/workflows/ci.yml/badge.svg)](https://github.com/juvenile454/esp32-laser-triangulation/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/juvenile454/esp32-laser-triangulation?include_prereleases&sort=semver)](https://github.com/juvenile454/esp32-laser-triangulation/releases)
-[![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
-![Status: research prototype](https://img.shields.io/badge/status-research_prototype-orange)
+[![License: Apache 2.0](https://img.shields.io/github/license/juvenile454/esp32-laser-triangulation)](LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/juvenile454/esp32-laser-triangulation)](https://github.com/juvenile454/esp32-laser-triangulation/commits/main)
+[![Status: research prototype](https://img.shields.io/badge/status-research_prototype-orange)](docs/STATUS.md)
+
+[![ESP32-S3 + OV3660](https://img.shields.io/badge/ESP32--S3-OV3660-E7352C?logo=espressif&logoColor=white)](#hardware)
+[![Framework: Arduino](https://img.shields.io/badge/framework-Arduino-00878F?logo=arduino&logoColor=white)](src/main.cpp)
+[![Build: PlatformIO](https://img.shields.io/badge/build-PlatformIO-F5822A?logo=platformio&logoColor=white)](platformio.ini)
+[![C++ 11 | 17](https://img.shields.io/badge/C%2B%2B-11%20%7C%2017-00599C?logo=cplusplus&logoColor=white)](lib/laser_core/src/laser_core.h)
+[![Python 3.10 | 3.12 | 3.13](https://img.shields.io/badge/python-3.10%20%7C%203.12%20%7C%203.13-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![Sanitizers: ASan + UBSan](https://img.shields.io/badge/sanitizers-ASan%20%2B%20UBSan-2EA44F)](Makefile)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-D7FF64?logo=ruff&logoColor=black)](pyproject.toml)
+[![Types: mypy](https://img.shields.io/badge/types-mypy-2A6DB2)](pyproject.toml)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/measurement-principle-dark.png">
