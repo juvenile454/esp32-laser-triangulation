@@ -6,12 +6,15 @@ Wire format assumptions (see src/main.cpp):
 * ``C`` answers ``FRAME_BEGIN <len> <width> <height> <format> <fnv1a32-hex>``,
   then exactly ``len`` JPEG bytes, then ``FRAME_END`` (or ``FRAME_ERROR ...``).
 * ``P`` answers ``CAMERA_STATUS READY|FAILED`` and a ``LASER ON|OFF`` line.
-* ``LASER ON|OFF pin=...`` lines may also arrive unsolicited, e.g. from a
-  firmware on-time watchdog: ``LASER OFF pin=14 reason=timeout on_ms=...``.
-* ``PAIR_END`` may carry trailing fields; ``ok=0`` marks a failed pair.
+* ``LASER ON|OFF pin=...`` lines may also arrive unsolicited from the firmware
+  watchdogs, e.g. ``LASER OFF pin=14 reason=timeout on_ms=...`` or
+  ``reason=host_silence``.
+* ``PAIR_END`` may carry trailing fields; ``ok=0`` marks a failed pair, and
+  ``PAIR_ERROR ...`` aborts it.
 
-The byte sequence that switches the laser on lives in exactly one place,
-:data:`LASER_ON_COMMAND`, so a later framed command needs a single change.
+The laser switches on only with the framed line ``@LASER ON``; a bare ``1`` is
+refused by the firmware. A single ``0`` byte switches it off immediately, even
+while a frame is being sent. Both live in exactly one place below.
 """
 
 from __future__ import annotations
@@ -32,9 +35,10 @@ DEFAULT_CAMERA_TIMEOUT_S = 12.0
 DEFAULT_BAUD = 921600
 DEFAULT_PORT = "/dev/ttyUSB0"
 
-# The ONLY definition of the laser switching commands. Firmware today takes a
-# bare '1' / '0'; a framed command (e.g. b"@LASER ON\n") only changes these.
-LASER_ON_COMMAND = b"1"
+# The ONLY definition of the laser switching commands (see
+# docs/FIRMWARE_PROTOCOL.md). Switching on needs the framed line command so a
+# stray byte cannot light the laser; switching off stays a single byte.
+LASER_ON_COMMAND = b"@LASER ON\n"
 LASER_OFF_COMMAND = b"0"
 
 

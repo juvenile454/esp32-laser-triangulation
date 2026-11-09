@@ -225,8 +225,8 @@ rigid transform into robot coordinates.
 ## Current limitations
 
 - The portable core is compiled and unit-tested for ESP32 but has not run on the board.
-- The RGB565 measurement path is written and cross-compiled but not hardware-verified. The current firmware only switches the sensor's pixel format while the driver stays configured for JPEG, which very likely makes `M` fail; draft PR #7 re-initialises the driver instead.
-- GPIO14 laser switching and the localhost viewer's `0/1/0` path are hardware-verified through the completed `2N2222` stage. The viewer now limits on-time on the host side; a firmware maximum-on time (draft PR #7), a final-fixture `R` capture and a multi-hour soak remain pending.
+- The RGB565 measurement path re-initialises the camera driver for RGB565 and back to JPEG. It is cross-compiled but not hardware-verified.
+- GPIO14 laser switching and the localhost viewer's `0/1/0` path are hardware-verified through the completed `2N2222` stage. The viewer limits on-time on the host side, and the firmware's framed laser-on command and watchdogs are compiled; their board test, a final-fixture `R` capture and a multi-hour soak remain pending.
 - The stripe core is saturated, which costs roughly an order of magnitude of centre precision.
 - No rigid-fixture pixel-to-millimetre calibration exists, and the focal length is estimated rather than measured.
 - Thresholds, runtime, PSRAM pressure and optical accuracy are not production claims.
